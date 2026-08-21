@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.gnome-ascii-saver" path="/org/gnome/shell/extensions/gnome-ascii-saver/">
+    <key name="enabled" type="b">
+      <default>true</default>
+      <summary>Launch automatically</summary>
+    </key>
+    <key name="idle-delay" type="u">
+      <default>120</default>
+      <range min="10" max="86400"/>
+      <summary>Idle delay in seconds</summary>
+    </key>
+  </schema>
+</schemalist>

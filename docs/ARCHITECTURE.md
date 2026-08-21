@@ -1,0 +1,85 @@
+# Architecture
+
+GNOME ASCII Saver separates idle detection from rendering. GNOME Shell owns
+the preferred idle integration; a systemd user service provides continuity
+when a newly installed extension cannot be loaded until the next session.
+
+## Process model
+
+```text
+GNOME Shell
+  └─ gnome-ascii-saver@local
+       ├─ observes Meta.IdleMonitor
+       ├─ stops the fallback service while active
+       └─ launches app.py at the configured threshold
+
+systemd --user (fallback only)
+  └─ gnome-ascii-saver-watcher
+       └─ watcher.py
+            ├─ polls Mutter's idle-monitor D-Bus API
+            ├─ observes org.gnome.ScreenSaver lock state
+            └─ launches app.py at the configured threshold
+
+app.py
+  ├─ creates one Gtk.ApplicationWindow per GDK monitor
+  └─ embeds one Vte.Terminal per window
+       └─ runs TerminalTextEffects against logo.txt
+```
+
+The extension stops `gnome-ascii-saver.service` in `enable()` and starts it in
+`disable()`. The installer also stops the fallback after confirming the
+extension is active. These safeguards prevent two idle watchers from launching
+the renderer at once.
+
+## Renderer lifecycle
+
+`app.py` records its process ID in the XDG runtime directory. Each monitor gets
+a borderless fullscreen window and an independent animation process. When an
+effect finishes, another random effect begins. Input controllers on every
+window request a single application-wide shutdown.
+
+There is a short input-arming delay during startup so the pointer event that
+helped reveal the window does not immediately dismiss it. `--windowed` skips
+fullscreen mode for safe previews, and `--once` exits after one effect for
+automated or manual smoke tests.
+
+## Configuration
+
+Extension settings use the schema
+`org.gnome.shell.extensions.gnome-ascii-saver`:
+
+- `enabled`: whether idle activation is armed.
+- `idle-delay`: activation threshold in seconds, from 10 through 86400.
+
+Visual configuration and artwork are intentionally ordinary user files under
+`$XDG_CONFIG_HOME/gnome-ascii-saver`. The installer creates defaults only when
+those files do not already exist.
+
+## Installed paths
+
+Defaults are shown below; XDG environment variables are honored where noted.
+
+| Purpose | Default path |
+| --- | --- |
+| Runtime and isolated environment | `~/.local/share/gnome-ascii-saver/` |
+| GNOME Shell extension | `~/.local/share/gnome-shell/extensions/gnome-ascii-saver@local/` |
+| Artwork and visual config | `~/.config/gnome-ascii-saver/` |
+| User service | `~/.config/systemd/user/gnome-ascii-saver.service` |
+| Launchers | `~/.local/bin/gnome-ascii-saver*` |
+| Desktop entry | `~/.local/share/applications/io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop` |
+| PID file | `$XDG_RUNTIME_DIR/gnome-ascii-saver-$UID.pid` |
+
+## Lock-screen behavior
+
+No component calls GNOME's lock or inhibit APIs. GNOME Shell disables ordinary
+user-session extensions when transitioning to its lock-screen session mode;
+the renderer is stopped during extension disable. The fallback independently
+checks `org.gnome.ScreenSaver.GetActive` and will not render over a locked
+session.
+
+## Compatibility and testing
+
+The metadata declares GNOME Shell 45–50. The current live test environment is
+GNOME Shell 50 on Wayland. Changes to GNOME Shell JavaScript APIs should be
+feature-detected when practical and exercised on every declared major version
+before a stable release.

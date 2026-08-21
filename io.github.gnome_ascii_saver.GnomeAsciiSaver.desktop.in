@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GNOME ASCII Saver
+Comment=Start the animated ASCII screensaver
+Exec=@EXEC@
+Icon=utilities-terminal
+Terminal=false
+Categories=Utility;GTK;
+Keywords=screensaver;ascii;terminal;animation;
+StartupNotify=false

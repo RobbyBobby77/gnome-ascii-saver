@@ -1,0 +1,9 @@
+{
+  "uuid": "gnome-ascii-saver@local",
+  "name": "GNOME ASCII Saver",
+  "description": "Launch an Omarchy-style animated ASCII screen after an idle delay.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.gnome-ascii-saver",
+  "version": 1,
+  "version-name": "0.1.0"
+}

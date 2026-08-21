@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install validation dependencies
+        run: >-
+          dnf install -y
+          bash desktop-file-utils git glib2 gnome-shell
+          gtk4 nodejs python3 python3-gobject vte291-gtk4
+
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Validate Python and shell syntax
+        run: |
+          python3 -m py_compile app.py ctl.py watcher.py
+          bash -n install.sh uninstall.sh bin/gnome-ascii-saver \
+            bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher
+
+      - name: Validate metadata, schema, and desktop entry
+        run: |
+          python3 -m json.tool config/config.json >/dev/null
+          python3 -m json.tool extension/metadata.json >/dev/null
+          glib-compile-schemas --strict --dry-run extension/schemas
+          sed 's|@EXEC@|/home/test/.local/bin/gnome-ascii-saver|' \
+            io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop.in \
+            >/tmp/gnome-ascii-saver.desktop
+          desktop-file-validate /tmp/gnome-ascii-saver.desktop
+
+      - name: Validate GNOME Shell JavaScript
+        run: |
+          node --input-type=module --check <extension/extension.js
+          node --input-type=module --check <extension/prefs.js
+          mkdir -p /tmp/extension-pack
+          gnome-extensions pack --force --out-dir /tmp/extension-pack extension
+
+      - name: Validate GTK and VTE bindings
+        run: |
+          python3 - <<'PY'
+          import gi
+          gi.require_version("Gtk", "4.0")
+          gi.require_version("Vte", "3.91")
+          from gi.repository import Gtk, Vte
+          assert Gtk and Vte
+          PY

@@ -1,0 +1,131 @@
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
+
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+
+export default class GnomeAsciiSaverExtension extends Extension {
+    enable() {
+        this._disabled = false;
+        this._process = null;
+        this._idleWatchId = 0;
+        this._activeWatchId = 0;
+        this._retrySourceId = 0;
+        this._idleMonitor = global.backend?.get_core_idle_monitor?.() ?? Meta.IdleMonitor.get_core();
+        this._settings = this.getSettings();
+        this._manageFallback('stop');
+        this._settingsChangedId = this._settings.connect('changed', () => this._reconfigure());
+        this._reconfigure();
+    }
+
+    disable() {
+        this._disabled = true;
+        if (this._settingsChangedId)
+            this._settings.disconnect(this._settingsChangedId);
+        this._settingsChangedId = 0;
+        this._removeWatches();
+        this._stopSaver(false);
+        this._settings = null;
+        this._idleMonitor = null;
+        this._manageFallback('start');
+    }
+
+    _manageFallback(action) {
+        try {
+            Gio.Subprocess.new(
+                ['systemctl', '--user', action, 'gnome-ascii-saver.service'],
+                Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE
+            );
+        } catch (error) {
+            console.error(`Unable to ${action} GNOME ASCII Saver fallback: ${error.message}`);
+        }
+    }
+
+    _removeWatches() {
+        if (this._idleWatchId) {
+            this._idleMonitor.remove_watch(this._idleWatchId);
+            this._idleWatchId = 0;
+        }
+        if (this._activeWatchId) {
+            this._idleMonitor.remove_watch(this._activeWatchId);
+            this._activeWatchId = 0;
+        }
+        if (this._retrySourceId) {
+            GLib.source_remove(this._retrySourceId);
+            this._retrySourceId = 0;
+        }
+    }
+
+    _reconfigure() {
+        this._removeWatches();
+        this._stopSaver(false);
+        if (!this._disabled && this._settings.get_boolean('enabled'))
+            this._armIdleWatch();
+    }
+
+    _armIdleWatch() {
+        if (this._disabled || this._idleWatchId || !this._settings.get_boolean('enabled'))
+            return;
+        const delayMs = Math.max(10, this._settings.get_uint('idle-delay')) * 1000;
+        this._idleWatchId = this._idleMonitor.add_idle_watch(delayMs, () => {
+            this._idleWatchId = 0;
+            this._startSaver();
+        });
+    }
+
+    _startSaver() {
+        if (this._disabled || this._process || !this._settings.get_boolean('enabled'))
+            return;
+
+        const dataDir = GLib.build_filenamev([GLib.get_user_data_dir(), 'gnome-ascii-saver']);
+        const argv = [
+            GLib.build_filenamev([dataDir, 'venv', 'bin', 'python']),
+            GLib.build_filenamev([dataDir, 'app.py']),
+        ];
+        try {
+            const process = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
+            this._process = process;
+            this._activeWatchId = this._idleMonitor.add_user_active_watch(() => {
+                this._activeWatchId = 0;
+                this._stopSaver(true);
+            });
+            process.wait_async(null, (source, result) => {
+                try {
+                    source.wait_finish(result);
+                } catch (error) {
+                    console.error(`GNOME ASCII Saver process error: ${error.message}`);
+                }
+                if (this._process !== process)
+                    return;
+                this._process = null;
+                if (this._activeWatchId) {
+                    this._idleMonitor.remove_watch(this._activeWatchId);
+                    this._activeWatchId = 0;
+                }
+                this._scheduleRetry();
+            });
+        } catch (error) {
+            console.error(`Unable to launch GNOME ASCII Saver: ${error.message}`);
+            this._scheduleRetry();
+        }
+    }
+
+    _stopSaver(rearm) {
+        if (this._process) {
+            this._process.force_exit();
+            this._process = null;
+        }
+        if (rearm)
+            this._armIdleWatch();
+    }
+
+    _scheduleRetry() {
+        if (this._disabled || this._retrySourceId || !this._settings.get_boolean('enabled'))
+            return;
+        this._retrySourceId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
+            this._retrySourceId = 0;
+            this._armIdleWatch();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+}

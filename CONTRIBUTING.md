@@ -1,0 +1,51 @@
+# Contributing
+
+Thanks for helping improve GNOME ASCII Saver. Keep changes focused, preserve
+GNOME's lock-screen behavior, and test both the native extension path and the
+fallback watcher when changing idle integration.
+
+## Local setup
+
+On Fedora:
+
+```sh
+sudo dnf install git python3-gobject gtk4 vte291-gtk4 gnome-shell nodejs
+git clone git@github.com:RobbyBobby77/gnome-ascii-saver.git
+cd gnome-ascii-saver
+./install.sh
+```
+
+Use a feature branch and make small commits. Before opening a pull request,
+run the same static checks used by CI:
+
+```sh
+python3 -m py_compile app.py ctl.py watcher.py
+bash -n install.sh uninstall.sh bin/gnome-ascii-saver \
+  bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher
+python3 -m json.tool config/config.json >/dev/null
+python3 -m json.tool extension/metadata.json >/dev/null
+glib-compile-schemas --strict --dry-run extension/schemas
+node --input-type=module --check <extension/extension.js
+node --input-type=module --check <extension/prefs.js
+```
+
+Then perform a runtime smoke test from a GNOME Wayland session:
+
+```sh
+gnome-ascii-saverctl status
+gnome-ascii-saverctl preview
+gnome-ascii-saverctl start
+```
+
+Confirm that keyboard and pointer activity dismiss fullscreen mode, GNOME's
+lock screen still activates normally, and `status` reports either the native
+extension or the fallback service—not both.
+
+## Pull requests
+
+Describe the visible behavior, GNOME Shell version, display protocol, monitor
+layout, and tests you ran. Never commit generated schemas, virtual
+environments, archives, logs, or personal artwork unless it is an intentional
+change to the project default.
+
+Security-sensitive reports should follow [SECURITY.md](SECURITY.md).
