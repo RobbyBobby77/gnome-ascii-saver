@@ -6,6 +6,18 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Dependency guidance for Fedora/RHEL, Debian/Ubuntu, Arch, openSUSE, and
+  manually packaged distributions.
+- Fedora and Debian validation jobs in CI.
+- A systemd-optional install path for GNOME environments using another init.
+
+### Changed
+
+- Resolve Python from `PATH` instead of assuming `/usr/bin/python3`.
+- Report unavailable systemd integration cleanly in the controller.
+
 ## [0.1.0] - 2026-08-21
 
 ### Added

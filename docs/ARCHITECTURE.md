@@ -1,8 +1,9 @@
 # Architecture
 
 GNOME ASCII Saver separates idle detection from rendering. GNOME Shell owns
-the preferred idle integration; a systemd user service provides continuity
-when a newly installed extension cannot be loaded until the next session.
+the preferred idle integration; on systemd desktops, a user service provides
+continuity when a newly installed extension cannot be loaded until the next
+session.
 
 ## Process model
 
@@ -13,7 +14,7 @@ GNOME Shell
        ├─ stops the fallback service while active
        └─ launches app.py at the configured threshold
 
-systemd --user (fallback only)
+systemd --user (optional fallback only)
   └─ gnome-ascii-saver-watcher
        └─ watcher.py
             ├─ polls Mutter's idle-monitor D-Bus API
@@ -29,7 +30,9 @@ app.py
 The extension stops `gnome-ascii-saver.service` in `enable()` and starts it in
 `disable()`. The installer also stops the fallback after confirming the
 extension is active. These safeguards prevent two idle watchers from launching
-the renderer at once.
+the renderer at once. If no systemd user manager is available, no fallback unit
+is installed and the native extension becomes active after the next GNOME
+login.
 
 ## Renderer lifecycle
 
@@ -64,7 +67,7 @@ Defaults are shown below; XDG environment variables are honored where noted.
 | Runtime and isolated environment | `~/.local/share/gnome-ascii-saver/` |
 | GNOME Shell extension | `~/.local/share/gnome-shell/extensions/gnome-ascii-saver@local/` |
 | Artwork and visual config | `~/.config/gnome-ascii-saver/` |
-| User service | `~/.config/systemd/user/gnome-ascii-saver.service` |
+| Optional user service | `~/.config/systemd/user/gnome-ascii-saver.service` |
 | Launchers | `~/.local/bin/gnome-ascii-saver*` |
 | Desktop entry | `~/.local/share/applications/io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop` |
 | PID file | `$XDG_RUNTIME_DIR/gnome-ascii-saver-$UID.pid` |
@@ -82,4 +85,5 @@ session.
 The metadata declares GNOME Shell 45–50. The current live test environment is
 GNOME Shell 50 on Wayland. Changes to GNOME Shell JavaScript APIs should be
 feature-detected when practical and exercised on every declared major version
-before a stable release.
+before a stable release. CI validates the portable source and declared runtime
+libraries on both Fedora and Debian; see [Distributions](DISTRIBUTIONS.md).
