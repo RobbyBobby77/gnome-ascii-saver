@@ -31,6 +31,14 @@ export default class GnomeAsciiSaverExtension extends Extension {
     }
 
     _manageFallback(action) {
+        const unit = GLib.build_filenamev([
+            GLib.get_user_config_dir(),
+            'systemd',
+            'user',
+            'gnome-ascii-saver.service',
+        ]);
+        if (!GLib.find_program_in_path('systemctl') || !GLib.file_test(unit, GLib.FileTest.EXISTS))
+            return;
         try {
             Gio.Subprocess.new(
                 ['systemctl', '--user', action, 'gnome-ascii-saver.service'],

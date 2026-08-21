@@ -8,27 +8,53 @@ app_dir="$data_home/gnome-ascii-saver"
 extension_dir="$data_home/gnome-shell/extensions/gnome-ascii-saver@local"
 bin_dir="$HOME/.local/bin"
 systemd_dir="$config_home/systemd/user"
+has_user_systemd=false
+
+show_dependency_help() {
+    "$source_dir/scripts/dependency-hint.sh" >&2
+}
 
 for command in python3 glib-compile-schemas gnome-extensions; do
     if ! command -v "$command" >/dev/null; then
         printf 'Missing required command: %s\n' "$command" >&2
+        show_dependency_help
         exit 1
     fi
 done
 
-python3 - <<'PY'
+if ! python3 - <<'PY'
 import gi
 for namespace, version in (("Gtk", "4.0"), ("Vte", "3.91")):
     gi.require_version(namespace, version)
 PY
+then
+    printf 'Missing required Python GTK 4 or VTE 3.91 bindings.\n' >&2
+    show_dependency_help
+    exit 1
+fi
+
+if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
+    has_user_systemd=true
+fi
 
 mkdir -p "$app_dir" "$extension_dir/schemas" "$bin_dir" \
-    "$config_home/gnome-ascii-saver" "$data_home/applications" "$systemd_dir"
+    "$config_home/gnome-ascii-saver" "$data_home/applications"
+if "$has_user_systemd"; then
+    mkdir -p "$systemd_dir"
+fi
 
 if [[ ! -x "$app_dir/venv/bin/python" ]]; then
-    python3 -m venv --system-site-packages "$app_dir/venv"
+    if ! python3 -m venv --system-site-packages "$app_dir/venv"; then
+        printf 'Unable to create a Python virtual environment.\n' >&2
+        show_dependency_help
+        exit 1
+    fi
 fi
-"$app_dir/venv/bin/python" -m pip install --quiet --disable-pip-version-check -r "$source_dir/requirements.txt"
+if ! "$app_dir/venv/bin/python" -m pip install --quiet --disable-pip-version-check \
+    -r "$source_dir/requirements.txt"; then
+    printf 'Unable to install TerminalTextEffects. Check network access and Python packaging support.\n' >&2
+    exit 1
+fi
 
 install -m 0755 "$source_dir/app.py" "$app_dir/app.py"
 install -m 0755 "$source_dir/ctl.py" "$app_dir/ctl.py"
@@ -60,9 +86,13 @@ sed "s|@EXEC@|$escaped_exec|" "$source_dir/io.github.gnome_ascii_saver.GnomeAsci
     >"$data_home/applications/io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop"
 update-desktop-database "$data_home/applications" 2>/dev/null || true
 
-install -m 0644 "$source_dir/gnome-ascii-saver.service" "$systemd_dir/gnome-ascii-saver.service"
-systemctl --user daemon-reload
-systemctl --user enable --now gnome-ascii-saver.service
+if "$has_user_systemd"; then
+    install -m 0644 "$source_dir/gnome-ascii-saver.service" "$systemd_dir/gnome-ascii-saver.service"
+    systemctl --user daemon-reload
+    systemctl --user enable --now gnome-ascii-saver.service
+else
+    rm -f -- "$systemd_dir/gnome-ascii-saver.service"
+fi
 
 if gnome-extensions enable gnome-ascii-saver@local 2>/dev/null; then
     extension_status=$(gnome-extensions info gnome-ascii-saver@local 2>/dev/null | sed -n 's/^ *State: */ /p')
@@ -76,14 +106,23 @@ if uuid not in enabled:
     enabled.append(uuid)
     settings.set_strv("enabled-extensions", enabled)
 PY
-    extension_status=" (idle service active now; Shell extension loads after the next login)"
+    if "$has_user_systemd"; then
+        extension_status=" (idle service active now; Shell extension loads after the next login)"
+    else
+        extension_status=" (Shell extension loads after the next login)"
+    fi
 fi
 
-if gnome-extensions info gnome-ascii-saver@local 2>/dev/null | grep -q 'State: ACTIVE'; then
+if "$has_user_systemd" && \
+    gnome-extensions info gnome-ascii-saver@local 2>/dev/null | grep -q 'State: ACTIVE'; then
     systemctl --user stop gnome-ascii-saver.service
 fi
 
 printf '\nGNOME ASCII Saver installed.%s\n' "$extension_status"
+if ! "$has_user_systemd"; then
+    printf 'No systemd user manager was found; the Shell extension will own idle activation.\n'
+    printf 'Log out and back in if the extension is not active yet.\n'
+fi
 printf 'Start now:  %s/gnome-ascii-saverctl start\n' "$bin_dir"
 printf 'Edit art:   %s/gnome-ascii-saverctl edit\n' "$bin_dir"
 printf 'Set delay:  %s/gnome-ascii-saverctl delay 180\n' "$bin_dir"

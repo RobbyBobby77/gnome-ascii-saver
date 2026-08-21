@@ -36,15 +36,15 @@ The current release is **0.1.0**. The native extension declares GNOME Shell
 45–50 compatibility and has been exercised live on GNOME Shell 50 under
 Wayland.
 
-## Quick start on Fedora
+## Quick start on Linux
 
-Install the operating-system dependencies:
+Ask the project for the correct dependency command for the current distro:
 
 ```sh
-sudo dnf install git python3-gobject gtk4 vte291-gtk4 gnome-shell
+./scripts/dependency-hint.sh
 ```
 
-Clone and install:
+Install those packages, then clone and install:
 
 ```sh
 git clone git@github.com:RobbyBobby77/gnome-ascii-saver.git
@@ -59,10 +59,12 @@ must have access. HTTPS cloning works too:
 git clone https://github.com/RobbyBobby77/gnome-ascii-saver.git
 ```
 
-Idle activation works immediately through the fallback user service. Log out
-and back in once if GNOME cannot load the newly installed extension in the
-current Shell session. Once active, the extension automatically stops the
-fallback service and becomes the only idle watcher.
+On systemd-based desktops, idle activation works immediately through the
+fallback user service. Log out and back in once if GNOME cannot load the newly
+installed extension in the current Shell session. Once active, the extension
+automatically stops the fallback service and becomes the only idle watcher.
+On a non-systemd distro, the native extension owns idle activation and may
+require that one logout/login before it can start.
 
 ## Use it
 
@@ -127,17 +129,12 @@ gnome-ascii-saverctl status
 gnome-ascii-saverctl preview
 ```
 
-For Debian or Ubuntu, the equivalent dependencies are typically:
-
-```sh
-sudo apt install python3-gi python3-venv gir1.2-gtk-4.0 gir1.2-vte-3.91 \
-  gnome-shell libglib2.0-bin desktop-file-utils
-```
-
-Package names vary by distribution. The destination needs Python 3, GTK 4,
-PyGObject, GTK4 VTE, GLib schema tools, GNOME Shell, systemd user services,
-and internet access during installation so the isolated environment can fetch
-TerminalTextEffects.
+Package names vary by distribution. Run `./scripts/dependency-hint.sh` for a
+Fedora/RHEL, Debian/Ubuntu, Arch, or openSUSE command, or see the complete
+[distribution guide](docs/DISTRIBUTIONS.md). The destination needs Python 3,
+GTK 4, PyGObject, GTK4 VTE, GLib schema tools, GNOME Shell, and internet access
+during installation so the isolated environment can fetch
+TerminalTextEffects. A systemd user manager is optional.
 
 To carry over your art and visual settings, copy this directory to the same
 location on the destination computer:
@@ -151,17 +148,20 @@ location on the destination computer:
 ```text
 GNOME Shell extension ─┐
                       ├─ idle reached ─> GTK/VTE renderer ─> TTE animation
-systemd fallback ─────┘                         │
+systemd fallback* ────┘                         │
                                                └─ activity ─> exit
 GNOME lock screen remains independent and authoritative
+
+* optional; used only when a systemd user manager is available
 ```
 
 The extension uses GNOME's core idle monitor and is the preferred integration.
 The fallback watcher uses Mutter's session D-Bus idle monitor until the Shell
 extension is available. Only one integration should be active at a time.
 
-See [Architecture](docs/ARCHITECTURE.md) for the process model and installed
-paths, [Security](SECURITY.md) for the trust boundary, and
+See [Architecture](docs/ARCHITECTURE.md) for the process model,
+[Distributions](docs/DISTRIBUTIONS.md) for package-manager guidance,
+[Security](SECURITY.md) for the trust boundary, and
 [Contributing](CONTRIBUTING.md) for development checks.
 
 ## Upgrade or uninstall

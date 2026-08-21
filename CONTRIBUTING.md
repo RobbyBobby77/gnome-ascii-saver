@@ -6,10 +6,11 @@ fallback watcher when changing idle integration.
 
 ## Local setup
 
-On Fedora:
+Use the dependency helper, then install the packages it lists for the current
+distribution:
 
 ```sh
-sudo dnf install git python3-gobject gtk4 vte291-gtk4 gnome-shell nodejs
+./scripts/dependency-hint.sh
 git clone git@github.com:RobbyBobby77/gnome-ascii-saver.git
 cd gnome-ascii-saver
 ./install.sh
@@ -21,7 +22,8 @@ run the same static checks used by CI:
 ```sh
 python3 -m py_compile app.py ctl.py watcher.py
 bash -n install.sh uninstall.sh bin/gnome-ascii-saver \
-  bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher
+  bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher \
+  scripts/dependency-hint.sh
 python3 -m json.tool config/config.json >/dev/null
 python3 -m json.tool extension/metadata.json >/dev/null
 glib-compile-schemas --strict --dry-run extension/schemas
@@ -44,7 +46,7 @@ extension or the fallback service—not both.
 ## Pull requests
 
 Describe the visible behavior, GNOME Shell version, display protocol, monitor
-layout, and tests you ran. Never commit generated schemas, virtual
+layout, distribution, init system, and tests you ran. Never commit generated schemas, virtual
 environments, archives, logs, or personal artwork unless it is an intentional
 change to the project default.
 

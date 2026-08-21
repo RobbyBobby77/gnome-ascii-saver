@@ -25,6 +25,18 @@ pid_file = runtime_dir / f"gnome-ascii-saver-{os.getuid()}.pid"
 launcher = home / ".local" / "bin" / "gnome-ascii-saver"
 
 
+def systemd_user_available() -> bool:
+    executable = shutil.which("systemctl")
+    if executable is None:
+        return False
+    return subprocess.run(
+        [executable, "--user", "show-environment"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
 def current_pid() -> int | None:
     try:
         pid = int(pid_file.read_text(encoding="ascii"))
@@ -83,12 +95,15 @@ def command_status() -> None:
     print(f"running: {'yes' if pid else 'no'}")
     print(f"automatic: {enabled}")
     print(f"idle delay: {delay} seconds")
-    service = subprocess.run(
-        ["systemctl", "--user", "is-active", "gnome-ascii-saver.service"],
-        text=True,
-        capture_output=True,
-        check=False,
-    ).stdout.strip()
+    if systemd_user_available():
+        service = subprocess.run(
+            ["systemctl", "--user", "is-active", "gnome-ascii-saver.service"],
+            text=True,
+            capture_output=True,
+            check=False,
+        ).stdout.strip()
+    else:
+        service = "unavailable"
     extension_info = subprocess.run(
         ["gnome-extensions", "info", UUID],
         text=True,
@@ -117,12 +132,13 @@ def command_uninstall() -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    subprocess.run(
-        ["systemctl", "--user", "disable", "--now", "gnome-ascii-saver.service"],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    if systemd_user_available():
+        subprocess.run(
+            ["systemctl", "--user", "disable", "--now", "gnome-ascii-saver.service"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     for path in (
         extension_dir,
         data_dir,
@@ -136,7 +152,8 @@ def command_uninstall() -> None:
             shutil.rmtree(path)
         else:
             path.unlink(missing_ok=True)
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+    if systemd_user_available():
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
     try:
         import gi
 
