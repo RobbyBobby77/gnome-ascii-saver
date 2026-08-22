@@ -20,7 +20,7 @@ if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/nu
     systemctl --user daemon-reload
 fi
 
-python3 - <<'PY'
+python3 - <<'PY' || true
 from gi.repository import Gio
 settings = Gio.Settings.new("org.gnome.shell")
 uuid = "gnome-ascii-saver@local"

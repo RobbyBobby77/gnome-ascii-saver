@@ -20,7 +20,8 @@ Use a feature branch and make small commits. Before opening a pull request,
 run the same static checks used by CI:
 
 ```sh
-python3 -m py_compile app.py ctl.py watcher.py
+python3 -m py_compile app.py ctl.py watcher.py helpers.py tests/test_helpers.py
+python3 -m unittest discover -s tests -t . -v
 bash -n install.sh uninstall.sh bin/gnome-ascii-saver \
   bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher \
   scripts/dependency-hint.sh

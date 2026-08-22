@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
 
 import gi
@@ -54,6 +55,7 @@ class IdleWatcher:
         # Installing or restarting the service should not immediately cover an
         # already-idle desktop. Arm after the next real user interaction.
         self.ready = self._idle_msec() < max(10, self.settings.get_uint("idle-delay")) * 1000
+        self._lock_unknown_logged = False
 
     def _idle_msec(self) -> int:
         result = self.idle_proxy.call_sync("GetIdletime", None, Gio.DBusCallFlags.NONE, 1000, None)
@@ -62,9 +64,16 @@ class IdleWatcher:
     def _screen_locked(self) -> bool:
         try:
             result = self.screen_proxy.call_sync("GetActive", None, Gio.DBusCallFlags.NONE, 1000, None)
+            self._lock_unknown_logged = False
             return bool(result.unpack()[0])
-        except GLib.Error:
-            return False
+        except GLib.Error as error:
+            if not self._lock_unknown_logged:
+                print(
+                    f"gnome-ascii-saver watcher: lock state unknown ({error.message}); not launching",
+                    file=sys.stderr,
+                )
+                self._lock_unknown_logged = True
+            return True
 
     def _start(self) -> None:
         if self.process is not None:

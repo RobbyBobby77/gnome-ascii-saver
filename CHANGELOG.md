@@ -12,11 +12,28 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   manually packaged distributions.
 - Fedora and Debian validation jobs in CI.
 - A systemd-optional install path for GNOME environments using another init.
+- Unit tests for config validation, TTE restart backoff, and PID-file claiming.
 
 ### Changed
 
 - Resolve Python from `PATH` instead of assuming `/usr/bin/python3`.
 - Report unavailable systemd integration cleanly in the controller.
+- Do not start the systemd fallback from extension `disable()`, so lock-screen
+  teardown and turning the extension off cannot re-arm the watcher.
+- Stop the renderer with SIGTERM and escalate to SIGKILL after three seconds.
+- Back off and give up when the TTE child fails instead of restarting in an
+  80 ms loop.
+- Validate `config.json` types and warn on corrupt JSON.
+- Claim the PID file exclusively under `$XDG_RUNTIME_DIR` or `/run/user/$UID`.
+- Scope the user unit to GNOME, wait on `gnome-session.target`, and cap
+  restart bursts.
+- Treat an unknown screensaver lock state as locked (fail closed).
+
+### Fixed
+
+- Quote the desktop `Exec` path so homes with spaces still launch.
+- Split `$EDITOR` with `shlex` when the value contains spaces.
+- Ignore GSettings cleanup failures in `uninstall.sh` under `set -e`.
 
 ## [0.1.0] - 2026-08-21
 

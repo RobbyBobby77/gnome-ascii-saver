@@ -59,12 +59,18 @@ must have access. HTTPS cloning works too:
 git clone https://github.com/RobbyBobby77/gnome-ascii-saver.git
 ```
 
-On systemd-based desktops, idle activation works immediately through the
-fallback user service. Log out and back in once if GNOME cannot load the newly
-installed extension in the current Shell session. Once active, the extension
-automatically stops the fallback service and becomes the only idle watcher.
-On a non-systemd distro, the native extension owns idle activation and may
-require that one logout/login before it can start.
+On systemd-based desktops, the installer enables a user unit so idle
+activation works immediately, before the next logout. Log out and back in once
+if GNOME cannot load the newly installed extension in the current Shell
+session. After login the extension stops the fallback service and becomes the
+only idle watcher; turning the extension off or locking the screen does not
+start that service again. On a non-systemd distro, the native extension owns
+idle activation and may require that one logout/login before it can start.
+
+The controller and launchers are installed to `~/.local/bin`. Add that
+directory to your `PATH`, or invoke them with the absolute path printed after
+install. The Shell extension UUID is `gnome-ascii-saver@local` while this
+project remains private.
 
 ## Use it
 

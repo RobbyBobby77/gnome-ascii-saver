@@ -4,6 +4,9 @@ import Meta from 'gi://Meta';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+const SIGTERM = 15;
+const KILL_TIMEOUT_SECONDS = 3;
+
 export default class GnomeAsciiSaverExtension extends Extension {
     enable() {
         this._disabled = false;
@@ -11,6 +14,7 @@ export default class GnomeAsciiSaverExtension extends Extension {
         this._idleWatchId = 0;
         this._activeWatchId = 0;
         this._retrySourceId = 0;
+        this._killSourceId = 0;
         this._idleMonitor = global.backend?.get_core_idle_monitor?.() ?? Meta.IdleMonitor.get_core();
         this._settings = this.getSettings();
         this._manageFallback('stop');
@@ -27,7 +31,7 @@ export default class GnomeAsciiSaverExtension extends Extension {
         this._stopSaver(false);
         this._settings = null;
         this._idleMonitor = null;
-        this._manageFallback('start');
+        // Lock-screen teardown and user disable must not start the fallback.
     }
 
     _manageFallback(action) {
@@ -103,10 +107,11 @@ export default class GnomeAsciiSaverExtension extends Extension {
                 } catch (error) {
                     console.error(`GNOME ASCII Saver process error: ${error.message}`);
                 }
+                this._clearKillTimeout();
                 if (this._process !== process)
                     return;
                 this._process = null;
-                if (this._activeWatchId) {
+                if (this._activeWatchId && this._idleMonitor) {
                     this._idleMonitor.remove_watch(this._activeWatchId);
                     this._activeWatchId = 0;
                 }
@@ -118,17 +123,39 @@ export default class GnomeAsciiSaverExtension extends Extension {
         }
     }
 
+    _clearKillTimeout() {
+        if (this._killSourceId) {
+            GLib.source_remove(this._killSourceId);
+            this._killSourceId = 0;
+        }
+    }
+
     _stopSaver(rearm) {
         if (this._process) {
-            this._process.force_exit();
+            const process = this._process;
             this._process = null;
+            try {
+                process.send_signal(SIGTERM);
+            } catch (error) {
+                console.error(`Unable to terminate GNOME ASCII Saver: ${error.message}`);
+            }
+            this._clearKillTimeout();
+            this._killSourceId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, KILL_TIMEOUT_SECONDS, () => {
+                this._killSourceId = 0;
+                try {
+                    process.force_exit();
+                } catch (error) {
+                    console.error(`Unable to kill GNOME ASCII Saver: ${error.message}`);
+                }
+                return GLib.SOURCE_REMOVE;
+            });
         }
         if (rearm)
             this._armIdleWatch();
     }
 
     _scheduleRetry() {
-        if (this._disabled || this._retrySourceId || !this._settings.get_boolean('enabled'))
+        if (this._disabled || this._retrySourceId || !this._settings?.get_boolean('enabled'))
             return;
         this._retrySourceId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
             this._retrySourceId = 0;

@@ -2,7 +2,7 @@
 Type=Application
 Name=GNOME ASCII Saver
 Comment=Start the animated ASCII screensaver
-Exec=@EXEC@
+Exec="@EXEC@"
 Icon=utilities-terminal
 Terminal=false
 Categories=Utility;GTK;

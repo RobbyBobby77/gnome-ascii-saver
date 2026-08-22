@@ -74,10 +74,11 @@ sandbox.
 
 The native GNOME Shell extension works independently of the system init. When
 `systemctl --user` is available, the installer also enables a fallback watcher
-so idle activation works before the first logout/login and during extension
-reloads. Without a systemd user manager, the installer skips that fallback and
-prints a reminder to log out and back in if Shell cannot activate the new
-extension immediately.
+so idle activation works before the first logout/login. The unit waits on
+`gnome-session.target`, runs only when `XDG_CURRENT_DESKTOP` includes GNOME,
+and is stopped by the extension after login. Without a systemd user manager,
+the installer skips that fallback and prints a reminder to log out and back in
+if Shell cannot activate the new extension immediately.
 
 ## Validation levels
 

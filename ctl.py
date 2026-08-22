@@ -10,18 +10,18 @@ import signal
 import subprocess
 from pathlib import Path
 
+from helpers import current_saver_pid, editor_argv, pid_file_path, read_version
+
 
 UUID = "gnome-ascii-saver@local"
 SCHEMA = "org.gnome.shell.extensions.gnome-ascii-saver"
-VERSION = "0.1.0"
+VERSION = read_version()
 home = Path.home()
 config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
 data_home = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
-runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
 config_dir = config_home / "gnome-ascii-saver"
 data_dir = data_home / "gnome-ascii-saver"
 extension_dir = data_home / "gnome-shell" / "extensions" / UUID
-pid_file = runtime_dir / f"gnome-ascii-saver-{os.getuid()}.pid"
 launcher = home / ".local" / "bin" / "gnome-ascii-saver"
 
 
@@ -39,10 +39,8 @@ def systemd_user_available() -> bool:
 
 def current_pid() -> int | None:
     try:
-        pid = int(pid_file.read_text(encoding="ascii"))
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
-        return pid if b"gnome-ascii-saver" in cmdline or b"app.py" in cmdline else None
-    except (OSError, ValueError):
+        return current_saver_pid(pid_file_path())
+    except RuntimeError:
         return None
 
 
@@ -66,9 +64,14 @@ def command_start(windowed: bool = False) -> None:
 
 
 def command_stop() -> None:
-    pid = current_pid()
+    try:
+        path = pid_file_path()
+    except RuntimeError:
+        print("GNOME ASCII Saver is not running")
+        return
+    pid = current_saver_pid(path)
     if not pid:
-        pid_file.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
         print("GNOME ASCII Saver is not running")
         return
     os.kill(pid, signal.SIGTERM)
@@ -79,9 +82,11 @@ def command_edit() -> None:
     logo = config_dir / "logo.txt"
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
     if editor:
-        subprocess.run([*editor.split(), str(logo)], check=False)
-    else:
-        subprocess.Popen(["xdg-open", str(logo)], start_new_session=True)
+        argv = editor_argv(editor)
+        if argv:
+            subprocess.run([*argv, str(logo)], check=False)
+            return
+    subprocess.Popen(["xdg-open", str(logo)], start_new_session=True)
 
 
 def command_status() -> None:
