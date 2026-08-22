@@ -1,10 +1,15 @@
 [Unit]
 Description=GNOME ASCII Saver idle watcher
 PartOf=graphical-session.target
-After=graphical-session.target
+After=gnome-session.target
+ConditionPathExists=%h/.local/bin/gnome-ascii-saver-watcher
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
+# XDG_CURRENT_DESKTOP is a colon-separated list; skip non-GNOME sessions.
+ExecCondition=/bin/sh -c 'case ":$XDG_CURRENT_DESKTOP:" in *:GNOME:*) exit 0;; *) exit 1;; esac'
 ExecStart=%h/.local/bin/gnome-ascii-saver-watcher
 Restart=on-failure
 RestartSec=3

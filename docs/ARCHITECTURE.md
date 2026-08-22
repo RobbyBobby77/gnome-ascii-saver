@@ -27,12 +27,16 @@ app.py
        └─ runs TerminalTextEffects against logo.txt
 ```
 
-The extension stops `gnome-ascii-saver.service` in `enable()` and starts it in
-`disable()`. The installer also stops the fallback after confirming the
-extension is active. These safeguards prevent two idle watchers from launching
-the renderer at once. If no systemd user manager is available, no fallback unit
-is installed and the native extension becomes active after the next GNOME
-login.
+The installer enables the user unit so idle activation works during the
+pre-logout window. After login, the extension stops the fallback in
+`enable()` and does **not** start it from `disable()`. GNOME calls `disable()`
+on lock-screen teardown and when the user turns the extension off; starting
+the watcher in those cases would cover the lock screen or keep a screensaver
+armed after the extension was disabled. The unit remains enabled, so a later
+graphical session can still start the watcher until the extension loads and
+stops it. The installer also stops the fallback after confirming the extension
+is already active. If no systemd user manager is available, no fallback unit is
+installed and the native extension becomes active after the next GNOME login.
 
 ## Renderer lifecycle
 
@@ -70,15 +74,19 @@ Defaults are shown below; XDG environment variables are honored where noted.
 | Optional user service | `~/.config/systemd/user/gnome-ascii-saver.service` |
 | Launchers | `~/.local/bin/gnome-ascii-saver*` |
 | Desktop entry | `~/.local/share/applications/io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop` |
-| PID file | `$XDG_RUNTIME_DIR/gnome-ascii-saver-$UID.pid` |
+| PID file | `$XDG_RUNTIME_DIR/gnome-ascii-saver-$UID.pid` (never world-writable `/tmp`) |
 
 ## Lock-screen behavior
 
 No component calls GNOME's lock or inhibit APIs. GNOME Shell disables ordinary
 user-session extensions when transitioning to its lock-screen session mode;
-the renderer is stopped during extension disable. The fallback independently
-checks `org.gnome.ScreenSaver.GetActive` and will not render over a locked
-session.
+the renderer is stopped during extension disable, and the fallback is not
+started from that teardown. The fallback independently checks
+`org.gnome.ScreenSaver.GetActive` and will not launch when the session is
+locked. If that call fails, lock state is treated as unknown and the overlay
+is not started (fail closed). The user unit is GNOME-scoped
+(`After=gnome-session.target`, a GNOME `XDG_CURRENT_DESKTOP` check) so it does
+not arm under other desktops.
 
 ## Compatibility and testing
 

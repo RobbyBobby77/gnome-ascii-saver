@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import signal
 import sys
@@ -17,37 +16,23 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("Vte", "3.91")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango, Vte  # noqa: E402
 
+from helpers import (  # noqa: E402
+    TTE_MAX_FAILURES,
+    TTE_SUCCESS_RESTART_MS,
+    load_config,
+    pid_file_path,
+    read_version,
+    tte_exit_ok,
+    tte_failure_delay_ms,
+    write_pid_file,
+    xdg_path,
+)
+
 
 APP_ID = "io.github.gnome_ascii_saver.GnomeAsciiSaver"
-VERSION = "0.1.0"
-DEFAULT_CONFIG = {
-    "font": "Monospace 18",
-    "background": "#000000",
-    "frame_rate": 60,
-    "exclude_effects": ["bouncyballs", "overflow"],
-}
-
-
-def xdg_path(env_name: str, fallback: Path) -> Path:
-    value = os.environ.get(env_name)
-    return Path(value).expanduser() if value else fallback
-
-
+VERSION = read_version()
 CONFIG_DIR = xdg_path("XDG_CONFIG_HOME", Path.home() / ".config") / "gnome-ascii-saver"
 DATA_DIR = xdg_path("XDG_DATA_HOME", Path.home() / ".local" / "share") / "gnome-ascii-saver"
-RUNTIME_DIR = xdg_path("XDG_RUNTIME_DIR", Path("/tmp"))
-PID_FILE = RUNTIME_DIR / f"gnome-ascii-saver-{os.getuid()}.pid"
-
-
-def load_config() -> dict:
-    config = DEFAULT_CONFIG.copy()
-    try:
-        loaded = json.loads((CONFIG_DIR / "config.json").read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            config.update(loaded)
-    except (OSError, ValueError):
-        pass
-    return config
 
 
 def parse_color(value: str, fallback: str) -> Gdk.RGBA:
@@ -65,6 +50,7 @@ class SaverWindow(Gtk.ApplicationWindow):
         self.windowed = windowed
         self.armed = False
         self.running = False
+        self.tte_failures = 0
         self.cancellable = Gio.Cancellable()
         self.set_decorated(windowed)
         self.set_resizable(True)
@@ -136,7 +122,7 @@ class SaverWindow(Gtk.ApplicationWindow):
             "-i",
             str(CONFIG_DIR / "logo.txt"),
             "--frame-rate",
-            str(max(1, int(self.app.config["frame_rate"]))),
+            str(self.app.config["frame_rate"]),
             "--canvas-width",
             "0",
             "--canvas-height",
@@ -152,8 +138,8 @@ class SaverWindow(Gtk.ApplicationWindow):
             "--no-restore-cursor",
         ]
         excluded = self.app.config.get("exclude_effects", [])
-        if isinstance(excluded, list) and excluded:
-            argv.extend(["--exclude-effects", *map(str, excluded)])
+        if excluded:
+            argv.extend(["--exclude-effects", *excluded])
         return argv
 
     def _start(self) -> bool:
@@ -183,12 +169,33 @@ class SaverWindow(Gtk.ApplicationWindow):
             self.running = False
             self.app.quit_saver()
 
-    def _on_child_exited(self, _terminal, _status) -> None:
+    def _on_child_exited(self, _terminal, status) -> None:
         self.running = False
         if self.app.once:
             self.app.quit_saver()
-        elif not self.app.stopping:
-            GLib.timeout_add(80, self._start)
+            return
+        if self.app.stopping:
+            return
+        if tte_exit_ok(status):
+            self.tte_failures = 0
+            GLib.timeout_add(TTE_SUCCESS_RESTART_MS, self._start)
+            return
+        self.tte_failures += 1
+        delay = tte_failure_delay_ms(self.tte_failures)
+        if delay is None:
+            print(
+                f"gnome-ascii-saver: animation exited with status {status}; "
+                f"giving up after {TTE_MAX_FAILURES} failures",
+                file=sys.stderr,
+            )
+            self.app.quit_saver()
+            return
+        print(
+            f"gnome-ascii-saver: animation exited with status {status}; "
+            f"retrying in {delay} ms ({self.tte_failures}/{TTE_MAX_FAILURES})",
+            file=sys.stderr,
+        )
+        GLib.timeout_add(delay, self._start)
 
 
 class SaverApplication(Gtk.Application):
@@ -196,8 +203,9 @@ class SaverApplication(Gtk.Application):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.windowed = windowed
         self.once = once
-        self.config = load_config()
+        self.config = load_config(CONFIG_DIR / "config.json")
         self.stopping = False
+        self.pid_file: Path | None = None
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
@@ -214,7 +222,13 @@ class SaverApplication(Gtk.Application):
                 window.present()
             return
 
-        PID_FILE.write_text(str(os.getpid()), encoding="ascii")
+        try:
+            self.pid_file = write_pid_file(pid_file_path(), os.getpid())
+        except (OSError, RuntimeError) as error:
+            print(f"gnome-ascii-saver: {error}", file=sys.stderr)
+            self.quit()
+            return
+
         if self.windowed:
             SaverWindow(self, None, True)
             return
@@ -238,11 +252,13 @@ class SaverApplication(Gtk.Application):
         self.quit()
 
     def do_shutdown(self) -> None:
-        try:
-            if PID_FILE.read_text(encoding="ascii").strip() == str(os.getpid()):
-                PID_FILE.unlink(missing_ok=True)
-        except OSError:
-            pass
+        pid_file = self.pid_file
+        if pid_file is not None:
+            try:
+                if pid_file.read_text(encoding="ascii").strip() == str(os.getpid()):
+                    pid_file.unlink(missing_ok=True)
+            except OSError:
+                pass
         Gtk.Application.do_shutdown(self)
 
 
