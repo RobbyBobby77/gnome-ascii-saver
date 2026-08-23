@@ -49,10 +49,13 @@ Keep `VERSION` and `extension/metadata.json` `version-name` identical; the unit
 tests assert that. There is no build step to rewrite metadata.
 
 `GNOME_ASCII_SAVER_CONFIG_DIR`, `GNOME_ASCII_SAVER_DATA_DIR`, and
-`GNOME_ASCII_SAVER_TTE` override renderer paths for tests.
+`GNOME_ASCII_SAVER_TTE` override renderer paths for tests. The fallback
+watcher uses the same `DATA_DIR` / `CONFIG_DIR` helpers when launching
+`app.py`.
 
 `./uninstall.sh` and `gnome-ascii-saverctl uninstall` perform the same removal
-steps. The script execs the installed controller when it is present.
+steps. The script execs the installed controller when it is present, then the
+checkout `ctl.py`, and only then a last-resort shell copy of those steps.
 
 ## Pull requests
 

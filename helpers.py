@@ -63,6 +63,21 @@ def tte_path(env: Mapping[str, str] | None = None, *, data: Path | None = None) 
     return executable if executable.exists() else Path("tte")
 
 
+def renderer_command(env: Mapping[str, str] | None = None) -> list[str]:
+    """Argv used to spawn the GTK renderer from the idle watcher."""
+    root = data_dir(env)
+    return [str(root / "venv" / "bin" / "python"), str(root / "app.py")]
+
+
+def renderer_environ(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Copy env with resolved CONFIG_DIR and DATA_DIR so children share helpers."""
+    source = os.environ if env is None else env
+    result = {key: str(value) for key, value in source.items()}
+    result[CONFIG_DIR_ENV] = str(config_dir(source))
+    result[DATA_DIR_ENV] = str(data_dir(source))
+    return result
+
+
 def windows_need_rebuild(existing_windowed: bool | None, requested_windowed: bool) -> bool:
     """True when a second Gio activation asked for a different window mode."""
     if existing_windowed is None:

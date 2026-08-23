@@ -228,6 +228,34 @@ class PathOverrideTests(unittest.TestCase):
         path = helpers.data_dir({helpers.DATA_DIR_ENV: "/tmp/custom-data"})
         self.assertEqual(path, Path("/tmp/custom-data"))
 
+    def test_renderer_command_honors_data_dir(self) -> None:
+        argv = helpers.renderer_command({helpers.DATA_DIR_ENV: "/tmp/custom-data"})
+        self.assertEqual(
+            argv,
+            ["/tmp/custom-data/venv/bin/python", "/tmp/custom-data/app.py"],
+        )
+
+    def test_renderer_environ_honors_config_and_data_dir(self) -> None:
+        env = helpers.renderer_environ(
+            {
+                helpers.CONFIG_DIR_ENV: "/tmp/custom-config",
+                helpers.DATA_DIR_ENV: "/tmp/custom-data",
+                "PATH": "/usr/bin",
+            }
+        )
+        self.assertEqual(env[helpers.CONFIG_DIR_ENV], "/tmp/custom-config")
+        self.assertEqual(env[helpers.DATA_DIR_ENV], "/tmp/custom-data")
+        self.assertEqual(env["PATH"], "/usr/bin")
+
+    def test_renderer_environ_uses_xdg_when_overrides_unset(self) -> None:
+        env = helpers.renderer_environ(
+            {"XDG_CONFIG_HOME": "/tmp/xdg-config", "XDG_DATA_HOME": "/tmp/xdg-data"}
+        )
+        self.assertEqual(
+            env[helpers.CONFIG_DIR_ENV], "/tmp/xdg-config/gnome-ascii-saver"
+        )
+        self.assertEqual(env[helpers.DATA_DIR_ENV], "/tmp/xdg-data/gnome-ascii-saver")
+
     def test_data_dir_uses_xdg_when_unset(self) -> None:
         path = helpers.data_dir({"XDG_DATA_HOME": "/tmp/xdg-data"})
         self.assertEqual(path, Path("/tmp/xdg-data") / "gnome-ascii-saver")
@@ -283,6 +311,26 @@ class DesktopEntryTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertRegex(text, r'(?m)^Exec="@EXEC@"$')
+
+
+class UninstallPathTests(unittest.TestCase):
+    def test_uninstall_sh_prefers_installed_ctl(self) -> None:
+        text = (ROOT / "uninstall.sh").read_text(encoding="utf-8")
+        ctl_exec = text.find('exec "$ctl" uninstall')
+        source_exec = text.find('exec python3 "$source_dir/ctl.py" uninstall')
+        self.assertNotEqual(ctl_exec, -1)
+        self.assertNotEqual(source_exec, -1)
+        self.assertLess(ctl_exec, source_exec)
+
+
+class ExtensionPolicyTests(unittest.TestCase):
+    def test_disable_does_not_start_fallback(self) -> None:
+        text = (ROOT / "extension" / "extension.js").read_text(encoding="utf-8")
+        self.assertNotIn("_manageFallback('start'", text)
+        self.assertNotIn('_manageFallback("start"', text)
+        disable = text.split("disable() {", 1)[1].split("\n    _manageFallback", 1)[0]
+        self.assertIn("must not start the fallback", disable)
+        self.assertNotIn("_manageFallback(", disable)
 
 
 if __name__ == "__main__":
