@@ -29,9 +29,11 @@ app.py
 
 The installer enables the user unit so idle activation works during the
 pre-logout window. After login, the extension stops the fallback in
-`enable()` and does **not** start it from `disable()`. GNOME calls `disable()`
-on lock-screen teardown and when the user turns the extension off; starting
-the watcher in those cases would cover the lock screen or keep a screensaver
+`enable()` and waits for that `systemctl --user stop` to finish (logging a
+failure rather than ignoring it) before arming its idle watch. It does
+**not** start the fallback from `disable()`. GNOME calls `disable()` on
+lock-screen teardown and when the user turns the extension off; starting the
+watcher in those cases would cover the lock screen or keep a screensaver
 armed after the extension was disabled. The unit remains enabled, so a later
 graphical session can still start the watcher until the extension loads and
 stops it. The installer also stops the fallback after confirming the extension
@@ -43,12 +45,21 @@ installed and the native extension becomes active after the next GNOME login.
 `app.py` records its process ID in the XDG runtime directory. Each monitor gets
 a borderless fullscreen window and an independent animation process. When an
 effect finishes, another random effect begins. Input controllers on every
-window request a single application-wide shutdown.
+window request a single application-wide shutdown. Fullscreen instances listen
+for `Gdk.Display` `monitor-added` / `monitor-removed` so hotplug while showing
+covers a new output and drops an orphaned window.
 
 There is a short input-arming delay during startup so the pointer event that
 helped reveal the window does not immediately dismiss it. `--windowed` skips
 fullscreen mode for safe previews, and `--once` exits after one effect for
-automated or manual smoke tests.
+automated or manual smoke tests. A second launch of the same Gio application
+id is delivered as a command line: if the existing windows are windowed and
+the new activation wants fullscreen (or the reverse), the old set is replaced
+rather than re-presented.
+
+Renderer paths honor `GNOME_ASCII_SAVER_CONFIG_DIR`,
+`GNOME_ASCII_SAVER_DATA_DIR`, and `GNOME_ASCII_SAVER_TTE` so tests can point at
+temporary directories without running `./install.sh`.
 
 ## Configuration
 
@@ -68,12 +79,13 @@ Defaults are shown below; XDG environment variables are honored where noted.
 
 | Purpose | Default path |
 | --- | --- |
-| Runtime and isolated environment | `~/.local/share/gnome-ascii-saver/` |
+| Runtime and isolated environment | `~/.local/share/gnome-ascii-saver/` (`GNOME_ASCII_SAVER_DATA_DIR`) |
 | GNOME Shell extension | `~/.local/share/gnome-shell/extensions/gnome-ascii-saver@local/` |
-| Artwork and visual config | `~/.config/gnome-ascii-saver/` |
+| Artwork and visual config | `~/.config/gnome-ascii-saver/` (`GNOME_ASCII_SAVER_CONFIG_DIR`) |
 | Optional user service | `~/.config/systemd/user/gnome-ascii-saver.service` |
 | Launchers | `~/.local/bin/gnome-ascii-saver*` |
 | Desktop entry | `~/.local/share/applications/io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop` |
+| TTE binary | `$DATA_DIR/venv/bin/tte` (`GNOME_ASCII_SAVER_TTE`) |
 | PID file | `$XDG_RUNTIME_DIR/gnome-ascii-saver-$UID.pid` (never world-writable `/tmp`) |
 
 ## Lock-screen behavior

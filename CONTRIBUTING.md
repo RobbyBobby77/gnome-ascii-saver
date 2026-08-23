@@ -20,7 +20,8 @@ Use a feature branch and make small commits. Before opening a pull request,
 run the same static checks used by CI:
 
 ```sh
-python3 -m py_compile app.py ctl.py watcher.py helpers.py tests/test_helpers.py
+python3 -m py_compile app.py ctl.py watcher.py helpers.py \
+  tests/test_helpers.py tests/test_ctl.py
 python3 -m unittest discover -s tests -t . -v
 bash -n install.sh uninstall.sh bin/gnome-ascii-saver \
   bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher \
@@ -43,6 +44,15 @@ gnome-ascii-saverctl start
 Confirm that keyboard and pointer activity dismiss fullscreen mode, GNOME's
 lock screen still activates normally, and `status` reports either the native
 extension or the fallback service—not both.
+
+Keep `VERSION` and `extension/metadata.json` `version-name` identical; the unit
+tests assert that. There is no build step to rewrite metadata.
+
+`GNOME_ASCII_SAVER_CONFIG_DIR`, `GNOME_ASCII_SAVER_DATA_DIR`, and
+`GNOME_ASCII_SAVER_TTE` override renderer paths for tests.
+
+`./uninstall.sh` and `gnome-ascii-saverctl uninstall` perform the same removal
+steps. The script execs the installed controller when it is present.
 
 ## Pull requests
 

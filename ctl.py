@@ -8,9 +8,17 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 from pathlib import Path
 
-from helpers import current_saver_pid, editor_argv, pid_file_path, read_version
+from helpers import (
+    config_dir as resolve_config_dir,
+    current_saver_pid,
+    data_dir as resolve_data_dir,
+    editor_argv,
+    pid_file_path,
+    read_version,
+)
 
 
 UUID = "gnome-ascii-saver@local"
@@ -19,8 +27,8 @@ VERSION = read_version()
 home = Path.home()
 config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
 data_home = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
-config_dir = config_home / "gnome-ascii-saver"
-data_dir = data_home / "gnome-ascii-saver"
+config_dir = resolve_config_dir()
+data_dir = resolve_data_dir()
 extension_dir = data_home / "gnome-shell" / "extensions" / UUID
 launcher = home / ".local" / "bin" / "gnome-ascii-saver"
 
@@ -57,25 +65,54 @@ def command_start(windowed: bool = False) -> None:
     if current_pid():
         print("GNOME ASCII Saver is already running")
         return
+    if not launcher.exists():
+        raise SystemExit(
+            f"gnome-ascii-saverctl: launcher not found at {launcher}; run ./install.sh"
+        )
     args = [str(launcher)]
     if windowed:
         args.append("--windowed")
-    subprocess.Popen(args, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        subprocess.Popen(
+            args,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as error:
+        raise SystemExit(
+            f"gnome-ascii-saverctl: could not start {launcher}: {error}"
+        ) from error
 
 
-def command_stop() -> None:
+def command_stop(*, quiet: bool = False) -> None:
     try:
         path = pid_file_path()
     except RuntimeError:
-        print("GNOME ASCII Saver is not running")
+        if not quiet:
+            print("GNOME ASCII Saver is not running")
         return
     pid = current_saver_pid(path)
     if not pid:
         path.unlink(missing_ok=True)
-        print("GNOME ASCII Saver is not running")
+        if not quiet:
+            print("GNOME ASCII Saver is not running")
         return
-    os.kill(pid, signal.SIGTERM)
-    print("Stopped GNOME ASCII Saver")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        path.unlink(missing_ok=True)
+        if not quiet:
+            print("GNOME ASCII Saver is not running")
+        return
+    except PermissionError as error:
+        message = f"gnome-ascii-saverctl: could not stop process {pid}: {error}"
+        if quiet:
+            print(message, file=sys.stderr)
+            return
+        raise SystemExit(message) from error
+    if not quiet:
+        print("Stopped GNOME ASCII Saver")
 
 
 def command_edit() -> None:
@@ -137,6 +174,7 @@ def command_uninstall() -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    command_stop(quiet=True)
     if systemd_user_available():
         subprocess.run(
             ["systemctl", "--user", "disable", "--now", "gnome-ascii-saver.service"],
@@ -144,6 +182,10 @@ def command_uninstall() -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+    try:
+        pid_file_path().unlink(missing_ok=True)
+    except RuntimeError:
+        pass
     for path in (
         extension_dir,
         data_dir,
@@ -170,7 +212,7 @@ def command_uninstall() -> None:
         shell.set_strv("enabled-extensions", enabled)
     except Exception:
         pass
-    print(f"Removed the application and extension. Your art is preserved in {config_dir}")
+    print(f"GNOME ASCII Saver removed. Your art is preserved in {config_dir}")
 
 
 def main() -> int:
@@ -211,7 +253,6 @@ def main() -> int:
     elif args.command == "status":
         command_status()
     elif args.command == "uninstall":
-        command_stop() if current_pid() else None
         command_uninstall()
     return 0
 

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import signal
 import sys
@@ -19,20 +18,20 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango, Vte  # noqa: E402
 from helpers import (  # noqa: E402
     TTE_MAX_FAILURES,
     TTE_SUCCESS_RESTART_MS,
+    config_dir,
     load_config,
     pid_file_path,
     read_version,
     tte_exit_ok,
     tte_failure_delay_ms,
+    tte_path,
+    windows_need_rebuild,
     write_pid_file,
-    xdg_path,
 )
 
 
 APP_ID = "io.github.gnome_ascii_saver.GnomeAsciiSaver"
 VERSION = read_version()
-CONFIG_DIR = xdg_path("XDG_CONFIG_HOME", Path.home() / ".config") / "gnome-ascii-saver"
-DATA_DIR = xdg_path("XDG_DATA_HOME", Path.home() / ".local" / "share") / "gnome-ascii-saver"
 
 
 def parse_color(value: str, fallback: str) -> Gdk.RGBA:
@@ -113,14 +112,11 @@ class SaverWindow(Gtk.ApplicationWindow):
         return False
 
     def _tte_argv(self) -> list[str]:
-        executable = DATA_DIR / "venv" / "bin" / "tte"
-        if not executable.exists():
-            executable = Path("tte")
         background = str(self.app.config["background"]).lstrip("#")
         argv = [
-            str(executable),
+            str(tte_path()),
             "-i",
-            str(CONFIG_DIR / "logo.txt"),
+            str(config_dir() / "logo.txt"),
             "--frame-rate",
             str(self.app.config["frame_rate"]),
             "--canvas-width",
@@ -199,13 +195,56 @@ class SaverWindow(Gtk.ApplicationWindow):
 
 
 class SaverApplication(Gtk.Application):
-    def __init__(self, *, windowed: bool, once: bool):
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
-        self.windowed = windowed
-        self.once = once
-        self.config = load_config(CONFIG_DIR / "config.json")
+    def __init__(self) -> None:
+        super().__init__(
+            application_id=APP_ID,
+            flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE,
+        )
+        self.windowed = False
+        self.once = False
+        self.config = load_config(config_dir() / "config.json")
         self.stopping = False
         self.pid_file: Path | None = None
+        self._monitor_added_id = 0
+        self._monitor_removed_id = 0
+        self.set_option_context_summary("Omarchy-style ASCII screensaver for GNOME")
+        self.add_main_option(
+            "windowed",
+            0,
+            GLib.OptionFlags.NONE,
+            GLib.OptionArg.NONE,
+            "open one decorated preview window",
+            None,
+        )
+        self.add_main_option(
+            "once",
+            0,
+            GLib.OptionFlags.NONE,
+            GLib.OptionArg.NONE,
+            "exit after one animation (for testing)",
+            None,
+        )
+        self.add_main_option(
+            "version",
+            0,
+            GLib.OptionFlags.NONE,
+            GLib.OptionArg.NONE,
+            "show program version",
+            None,
+        )
+
+    def do_handle_local_options(self, options: GLib.VariantDict) -> int:
+        if options.contains("version"):
+            print(f"GNOME ASCII Saver {VERSION}")
+            return 0
+        return -1
+
+    def do_command_line(self, command_line: Gio.ApplicationCommandLine) -> int:
+        options = command_line.get_options_dict()
+        self.windowed = options.contains("windowed")
+        self.once = options.contains("once")
+        self.activate()
+        return 0
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
@@ -216,23 +255,27 @@ class SaverApplication(Gtk.Application):
         )
         self.set_accels_for_action("app.quit", ["Escape"])
 
-    def do_activate(self) -> None:
-        if self.get_windows():
-            for window in self.get_windows():
-                window.present()
-            return
+    def _existing_windowed(self) -> bool | None:
+        windows = list(self.get_windows())
+        if not windows:
+            return None
+        return all(window.windowed for window in windows)
 
+    def _close_window(self, window: SaverWindow) -> None:
         try:
-            self.pid_file = write_pid_file(pid_file_path(), os.getpid())
-        except (OSError, RuntimeError) as error:
-            print(f"gnome-ascii-saver: {error}", file=sys.stderr)
-            self.quit()
-            return
+            window.terminal.feed_child(bytes((3,)))
+        except GLib.Error:
+            pass
+        window.destroy()
 
+    def _destroy_windows(self) -> None:
+        for window in list(self.get_windows()):
+            self._close_window(window)
+
+    def _create_windows(self) -> None:
         if self.windowed:
             SaverWindow(self, None, True)
             return
-
         display = Gdk.Display.get_default()
         monitors = display.get_monitors() if display else None
         count = monitors.get_n_items() if monitors else 0
@@ -242,16 +285,71 @@ class SaverApplication(Gtk.Application):
         else:
             SaverWindow(self, None, False)
 
+    def _listen_for_monitors(self, enabled: bool) -> None:
+        display = Gdk.Display.get_default()
+        if enabled:
+            if display is None or self._monitor_added_id:
+                return
+            self._monitor_added_id = display.connect("monitor-added", self._on_monitor_added)
+            self._monitor_removed_id = display.connect("monitor-removed", self._on_monitor_removed)
+            return
+        if display is not None:
+            if self._monitor_added_id:
+                display.disconnect(self._monitor_added_id)
+            if self._monitor_removed_id:
+                display.disconnect(self._monitor_removed_id)
+        self._monitor_added_id = 0
+        self._monitor_removed_id = 0
+
+    def _on_monitor_added(self, _display, monitor) -> None:
+        if self.stopping or self.windowed:
+            return
+        for window in list(self.get_windows()):
+            if window.monitor is monitor:
+                return
+            if window.monitor is None and not window.windowed:
+                self._close_window(window)
+        SaverWindow(self, monitor, False)
+
+    def _on_monitor_removed(self, _display, monitor) -> None:
+        if self.windowed:
+            return
+        for window in list(self.get_windows()):
+            if window.monitor is monitor:
+                self._close_window(window)
+        if not self.get_windows() and not self.stopping:
+            self.quit_saver()
+
+    def do_activate(self) -> None:
+        existing = self._existing_windowed()
+        if existing is not None:
+            if not windows_need_rebuild(existing, self.windowed):
+                for window in self.get_windows():
+                    window.present()
+                return
+            self._destroy_windows()
+
+        if self.pid_file is None:
+            try:
+                self.pid_file = write_pid_file(pid_file_path(), os.getpid())
+            except (OSError, RuntimeError) as error:
+                print(f"gnome-ascii-saver: {error}", file=sys.stderr)
+                self.quit()
+                return
+
+        self._listen_for_monitors(not self.windowed)
+        self._create_windows()
+
     def quit_saver(self) -> None:
         if self.stopping:
             return
         self.stopping = True
-        for window in list(self.get_windows()):
-            window.terminal.feed_child(bytes((3,)))
-            window.destroy()
+        self._listen_for_monitors(False)
+        self._destroy_windows()
         self.quit()
 
     def do_shutdown(self) -> None:
+        self._listen_for_monitors(False)
         pid_file = self.pid_file
         if pid_file is not None:
             try:
@@ -263,15 +361,10 @@ class SaverApplication(Gtk.Application):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Omarchy-style ASCII screensaver for GNOME")
-    parser.add_argument("--version", action="version", version=f"GNOME ASCII Saver {VERSION}")
-    parser.add_argument("--windowed", action="store_true", help="open one decorated preview window")
-    parser.add_argument("--once", action="store_true", help="exit after one animation (for testing)")
-    args = parser.parse_args()
-    app = SaverApplication(windowed=args.windowed, once=args.once)
+    app = SaverApplication()
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, lambda *_unused: GLib.idle_add(app.quit_saver))
-    return app.run([sys.argv[0]])
+    return app.run(sys.argv)
 
 
 if __name__ == "__main__":

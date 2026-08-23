@@ -186,6 +186,9 @@ To remove the application, extension, and service while keeping your artwork:
 ./uninstall.sh
 ```
 
+`gnome-ascii-saverctl uninstall` performs the same steps once the controller is
+installed; `./uninstall.sh` execs it when present.
+
 Delete `~/.config/gnome-ascii-saver/` separately only if you also want to
 remove your artwork and visual settings.
 

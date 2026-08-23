@@ -21,6 +21,9 @@ DEFAULT_CONFIG = {
 TTE_SUCCESS_RESTART_MS = 80
 TTE_MAX_FAILURES = 5
 FALLBACK_VERSION = "0.1.0"
+CONFIG_DIR_ENV = "GNOME_ASCII_SAVER_CONFIG_DIR"
+DATA_DIR_ENV = "GNOME_ASCII_SAVER_DATA_DIR"
+TTE_ENV = "GNOME_ASCII_SAVER_TTE"
 
 
 def _warn(message: str) -> None:
@@ -30,6 +33,41 @@ def _warn(message: str) -> None:
 def xdg_path(env_name: str, fallback: Path, env: Mapping[str, str] | None = None) -> Path:
     value = (os.environ if env is None else env).get(env_name)
     return Path(value).expanduser() if value else fallback
+
+
+def _override_path(env_name: str, env: Mapping[str, str] | None = None) -> Path | None:
+    value = (os.environ if env is None else env).get(env_name)
+    return Path(value).expanduser() if value else None
+
+
+def config_dir(env: Mapping[str, str] | None = None) -> Path:
+    override = _override_path(CONFIG_DIR_ENV, env)
+    if override is not None:
+        return override
+    return xdg_path("XDG_CONFIG_HOME", Path.home() / ".config", env) / "gnome-ascii-saver"
+
+
+def data_dir(env: Mapping[str, str] | None = None) -> Path:
+    override = _override_path(DATA_DIR_ENV, env)
+    if override is not None:
+        return override
+    return xdg_path("XDG_DATA_HOME", Path.home() / ".local" / "share", env) / "gnome-ascii-saver"
+
+
+def tte_path(env: Mapping[str, str] | None = None, *, data: Path | None = None) -> Path:
+    """Resolve the TTE binary. A missing override or venv copy falls back to PATH."""
+    override = _override_path(TTE_ENV, env)
+    if override is not None:
+        return override if override.exists() else Path("tte")
+    executable = (data if data is not None else data_dir(env)) / "venv" / "bin" / "tte"
+    return executable if executable.exists() else Path("tte")
+
+
+def windows_need_rebuild(existing_windowed: bool | None, requested_windowed: bool) -> bool:
+    """True when a second Gio activation asked for a different window mode."""
+    if existing_windowed is None:
+        return False
+    return existing_windowed != requested_windowed
 
 
 def new_config() -> dict:
