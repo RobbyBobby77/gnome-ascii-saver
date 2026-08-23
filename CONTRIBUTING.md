@@ -1,23 +1,28 @@
 # Contributing
 
 Thanks for helping improve GNOME ASCII Saver. Keep changes focused, preserve
-GNOME's lock-screen behavior, and test both the native extension path and the
-fallback watcher when changing idle integration.
+GNOME's lock-screen behavior, and test both the native extension and fallback
+paths when changing idle integration. Participation is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Local setup
 
-Use the dependency helper, then install the packages it lists for the current
-distribution:
+Fork or clone the repository, use a feature branch, and install the packages
+listed for your distribution:
 
 ```sh
-./scripts/dependency-hint.sh
-git clone git@github.com:RobbyBobby77/gnome-ascii-saver.git
+git clone https://github.com/RobbyBobby77/gnome-ascii-saver.git
 cd gnome-ascii-saver
+./scripts/dependency-hint.sh
 ./install.sh
 ```
 
-Use a feature branch and make small commits. Before opening a pull request,
-run the same static checks used by CI:
+The dependency helper only prints a package-manager command; it does not run
+`sudo` or modify the system.
+
+## Validation
+
+Before opening a pull request, run the static checks used by CI:
 
 ```sh
 python3 -m py_compile app.py ctl.py watcher.py helpers.py \
@@ -25,7 +30,8 @@ python3 -m py_compile app.py ctl.py watcher.py helpers.py \
 python3 -m unittest discover -s tests -t . -v
 bash -n install.sh uninstall.sh bin/gnome-ascii-saver \
   bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher \
-  scripts/dependency-hint.sh
+  install-online.sh scripts/build-release.sh \
+  scripts/dependency-hint.sh tests/test_installers.sh
 python3 -m json.tool config/config.json >/dev/null
 python3 -m json.tool extension/metadata.json >/dev/null
 glib-compile-schemas --strict --dry-run extension/schemas
@@ -33,7 +39,13 @@ node --input-type=module --check <extension/extension.js
 node --input-type=module --check <extension/prefs.js
 ```
 
-Then perform a runtime smoke test from a GNOME Wayland session:
+Run installer/release tests when those paths are affected:
+
+```sh
+tests/test_installers.sh
+```
+
+Then perform a runtime smoke test inside a GNOME session:
 
 ```sh
 gnome-ascii-saverctl status
@@ -41,27 +53,37 @@ gnome-ascii-saverctl preview
 gnome-ascii-saverctl start
 ```
 
-Confirm that keyboard and pointer activity dismiss fullscreen mode, GNOME's
-lock screen still activates normally, and `status` reports either the native
-extension or the fallback service—not both.
+Confirm that each relevant input dismisses fullscreen mode, GNOME's lock screen
+still takes precedence, and `status` reports either the extension or fallback
+as active—not both. Use [the acceptance template](docs/ACCEPTANCE-TEMPLATE.md)
+for release-candidate testing.
 
-Keep `VERSION` and `extension/metadata.json` `version-name` identical; the unit
-tests assert that. There is no build step to rewrite metadata.
+## Project invariants
+
+- `VERSION` and `extension/metadata.json` `version-name` must agree.
+- The stable extension UUID is
+  `gnome-ascii-saver@robbybobby77.github.io`; changing it creates a different
+  extension identity and migration problem.
+- User artwork and configuration must survive install, upgrade, rollback, and
+  uninstall unless the user explicitly removes them.
+- The saver remains decorative and must not replace, inhibit, unlock, or
+  reconfigure GNOME's lock screen.
+- Installation remains user-local and must not invoke `sudo` or a package
+  manager.
+- Only one automatic idle integration may be active at a time.
 
 `GNOME_ASCII_SAVER_CONFIG_DIR`, `GNOME_ASCII_SAVER_DATA_DIR`, and
-`GNOME_ASCII_SAVER_TTE` override renderer paths for tests. The fallback
-watcher uses the same `DATA_DIR` / `CONFIG_DIR` helpers when launching
-`app.py`.
-
-`./uninstall.sh` and `gnome-ascii-saverctl uninstall` perform the same removal
-steps. The script execs the installed controller when it is present, then the
-checkout `ctl.py`, and only then a last-resort shell copy of those steps.
+`GNOME_ASCII_SAVER_TTE` override renderer paths for isolated tests.
 
 ## Pull requests
 
-Describe the visible behavior, GNOME Shell version, display protocol, monitor
-layout, distribution, init system, and tests you ran. Never commit generated schemas, virtual
-environments, archives, logs, or personal artwork unless it is an intentional
-change to the project default.
+Describe user-visible behavior, implementation choices, and tests performed.
+For desktop changes include the GNOME Shell version, display protocol, monitor
+layout, scale factors, distribution, and init system. Mark unavailable manual
+cases as untested; do not mark them as passing.
 
-Security-sensitive reports should follow [SECURITY.md](SECURITY.md).
+Keep commits focused. Do not commit generated schemas, virtual environments,
+release archives, logs, screenshots containing personal data, or custom
+artwork unless it is an intentional change to the project default.
+
+Security-sensitive reports must follow [SECURITY.md](SECURITY.md).

@@ -9,7 +9,7 @@ session.
 
 ```text
 GNOME Shell
-  └─ gnome-ascii-saver@local
+  └─ gnome-ascii-saver@robbybobby77.github.io
        ├─ observes Meta.IdleMonitor
        ├─ stops the fallback service while active
        └─ launches app.py at the configured threshold
@@ -76,6 +76,25 @@ Visual configuration and artwork are intentionally ordinary user files under
 `$XDG_CONFIG_HOME/gnome-ascii-saver`. The installer creates defaults only when
 those files do not already exist.
 
+## Installation and update model
+
+The online bootstrap discovers a stable tagged release, downloads the project's
+release archive and published SHA-256 file, and verifies the archive before
+extracting it in a private temporary directory. The bundled installer builds a
+fresh application environment in a staging directory before replacing managed
+files. If replacement fails, it restores the preceding application and
+integration state.
+
+The installer owns executable application data, launchers, the Shell extension,
+desktop entry, and optional user service. It does not own user artwork or
+visual configuration after creating their initial defaults. Upgrades and
+uninstall therefore preserve `$XDG_CONFIG_HOME/gnome-ascii-saver`.
+
+No installation path invokes `sudo` or a package manager. Required system
+libraries stay under distribution control. Python runtime packages are
+version-pinned and hash-verified into the application's isolated virtual
+environment.
+
 ## Installed paths
 
 Defaults are shown below; XDG environment variables are honored where noted.
@@ -83,11 +102,11 @@ Defaults are shown below; XDG environment variables are honored where noted.
 | Purpose | Default path |
 | --- | --- |
 | Runtime and isolated environment | `~/.local/share/gnome-ascii-saver/` (`GNOME_ASCII_SAVER_DATA_DIR`) |
-| GNOME Shell extension | `~/.local/share/gnome-shell/extensions/gnome-ascii-saver@local/` |
+| GNOME Shell extension | `~/.local/share/gnome-shell/extensions/gnome-ascii-saver@robbybobby77.github.io/` |
 | Artwork and visual config | `~/.config/gnome-ascii-saver/` (`GNOME_ASCII_SAVER_CONFIG_DIR`) |
 | Optional user service | `~/.config/systemd/user/gnome-ascii-saver.service` |
 | Launchers | `~/.local/bin/gnome-ascii-saver*` |
-| Desktop entry | `~/.local/share/applications/io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop` |
+| Desktop entry | `~/.local/share/applications/io.github.RobbyBobby77.GnomeAsciiSaver.desktop` |
 | TTE binary | `$DATA_DIR/venv/bin/tte` (`GNOME_ASCII_SAVER_TTE`) |
 | PID file | `$XDG_RUNTIME_DIR/gnome-ascii-saver-$UID.pid` (never world-writable `/tmp`) |
 
@@ -103,10 +122,29 @@ is not started (fail closed). The user unit is GNOME-scoped
 (`After=gnome-session.target`, a GNOME `XDG_CURRENT_DESKTOP` check) so it does
 not arm under other desktops.
 
+## Trust boundaries
+
+- GNOME's lock screen is authoritative; this project is not an authentication
+  surface and cannot guarantee local privacy.
+- The renderer, extension, controller, and fallback all run with the logged-in
+  user's permissions. A flaw can affect files and processes available to that
+  user even though no root privileges are requested.
+- GitHub, repository administration, release assets, and the raw bootstrap URL
+  are part of the online installation trust boundary. SHA-256 verification
+  detects mismatch or corruption but cannot make a compromised release
+  trustworthy.
+- TerminalTextEffects is third-party code installed into the isolated
+  environment. Pinning and hash verification constrain what package content is
+  accepted; they do not replace source review.
+- Custom artwork and `config.json` are local inputs. They are never uploaded by
+  the project.
+
 ## Compatibility and testing
 
-The metadata declares GNOME Shell 45–50. The current live test environment is
-GNOME Shell 50 on Wayland. Changes to GNOME Shell JavaScript APIs should be
-feature-detected when practical and exercised on every declared major version
-before a stable release. CI validates the portable source and declared runtime
-libraries on both Fedora and Debian; see [Distributions](DISTRIBUTIONS.md).
+The metadata declares GNOME Shell 45–50. Current live coverage must be recorded
+in a release acceptance record rather than inferred from metadata. Changes to
+GNOME Shell JavaScript APIs should be feature-detected when practical and
+exercised on every declared major version before a stable claim. CI validates
+portable source and declared runtime libraries on Fedora and Debian; see
+[Distributions](DISTRIBUTIONS.md) and the
+[release checklist](RELEASE_CHECKLIST.md).
