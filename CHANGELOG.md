@@ -18,7 +18,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Monitor add/remove handling while the fullscreen saver is showing.
 - A README `PATH` export snippet, installer hint, and DISTRIBUTIONS note for
   `~/.local/bin`.
-- Dependabot updates for GitHub Actions.
 - A GitHub issue template for desktop bug reports.
 
 ### Changed
