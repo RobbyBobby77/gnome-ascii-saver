@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 import signal
 import subprocess
 import sys
@@ -14,13 +13,18 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
+from helpers import renderer_command, renderer_environ, xdg_path  # noqa: E402
+
 
 UUID = "gnome-ascii-saver@local"
 SCHEMA = "org.gnome.shell.extensions.gnome-ascii-saver"
-home = Path.home()
-data_home = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
-extension_dir = data_home / "gnome-shell" / "extensions" / UUID
-app_dir = data_home / "gnome-ascii-saver"
+# Schemas stay under XDG_DATA_HOME; the renderer tree uses helpers.data_dir().
+extension_dir = (
+    xdg_path("XDG_DATA_HOME", Path.home() / ".local" / "share")
+    / "gnome-shell"
+    / "extensions"
+    / UUID
+)
 
 
 class IdleWatcher:
@@ -79,8 +83,9 @@ class IdleWatcher:
         if self.process is not None:
             return
         self.process = subprocess.Popen(
-            [str(app_dir / "venv" / "bin" / "python"), str(app_dir / "app.py")],
+            renderer_command(),
             start_new_session=True,
+            env=renderer_environ(),
         )
 
     def _stop(self) -> None:

@@ -128,3 +128,4 @@ fi
 printf 'Start now:  %s/gnome-ascii-saverctl start\n' "$bin_dir"
 printf 'Edit art:   %s/gnome-ascii-saverctl edit\n' "$bin_dir"
 printf 'Set delay:  %s/gnome-ascii-saverctl delay 180\n' "$bin_dir"
+printf 'If those commands are not found, add %s to PATH.\n' "$bin_dir"

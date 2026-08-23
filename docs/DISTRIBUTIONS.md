@@ -64,6 +64,9 @@ gnome-ascii-saverctl status
 gnome-ascii-saverctl preview
 ```
 
+Launch wrappers live in `~/.local/bin`. Add that directory to `PATH` if the
+commands are not found.
+
 NixOS and other declarative/read-only systems should provide the dependencies
 through their native environment or package definition before running the
 user-level installer. Flatpak is not a drop-in packaging option because the

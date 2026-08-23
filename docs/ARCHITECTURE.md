@@ -59,7 +59,10 @@ rather than re-presented.
 
 Renderer paths honor `GNOME_ASCII_SAVER_CONFIG_DIR`,
 `GNOME_ASCII_SAVER_DATA_DIR`, and `GNOME_ASCII_SAVER_TTE` so tests can point at
-temporary directories without running `./install.sh`.
+temporary directories without running `./install.sh`. The fallback watcher
+spawns `app.py` with `helpers.renderer_command()` and
+`helpers.renderer_environ()`, so those `DATA_DIR` / `CONFIG_DIR` overrides
+reach the child.
 
 ## Configuration
 

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 data_home=${XDG_DATA_HOME:-"$HOME/.local/share"}
 config_home=${XDG_CONFIG_HOME:-"$HOME/.config"}
 
@@ -9,6 +10,15 @@ ctl="$HOME/.local/bin/gnome-ascii-saverctl"
 if [[ -x "$ctl" ]]; then
     exec "$ctl" uninstall
 fi
+
+# Next, the checkout copy of ctl.py so this script does not drift from
+# command_uninstall when the launcher is already gone.
+if [[ -f "$source_dir/ctl.py" ]]; then
+    exec python3 "$source_dir/ctl.py" uninstall
+fi
+
+# Last-resort copy of ctl.command_uninstall. Keep the steps below aligned
+# with that function; do not add behavior the controller does not have.
 
 gnome-extensions disable gnome-ascii-saver@local 2>/dev/null || true
 if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then

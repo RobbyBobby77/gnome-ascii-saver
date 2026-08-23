@@ -16,6 +16,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `GNOME_ASCII_SAVER_CONFIG_DIR`, `GNOME_ASCII_SAVER_DATA_DIR`, and
   `GNOME_ASCII_SAVER_TTE` path overrides for tests.
 - Monitor add/remove handling while the fullscreen saver is showing.
+- A README `PATH` export snippet, installer hint, and DISTRIBUTIONS note for
+  `~/.local/bin`.
+- Dependabot updates for GitHub Actions.
+- A GitHub issue template for desktop bug reports.
 
 ### Changed
 
@@ -36,7 +40,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Replace an already-running windowed preview with fullscreen (and the reverse)
   on a second Gio application activation.
 - Make `gnome-ascii-saverctl uninstall` the shared removal path used by
-  `uninstall.sh`.
+  `uninstall.sh`; the script falls back to checkout `ctl.py` before a
+  last-resort shell copy of those steps.
+- Launch the renderer from the fallback watcher through the same
+  `DATA_DIR` / `CONFIG_DIR` helpers as `app.py`.
 
 ### Fixed
 

@@ -68,9 +68,14 @@ start that service again. On a non-systemd distro, the native extension owns
 idle activation and may require that one logout/login before it can start.
 
 The controller and launchers are installed to `~/.local/bin`. Add that
-directory to your `PATH`, or invoke them with the absolute path printed after
-install. The Shell extension UUID is `gnome-ascii-saver@local` while this
-project remains private.
+directory to `PATH` if `gnome-ascii-saverctl` is not found after install:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+The installer also prints absolute paths you can invoke directly. The Shell
+extension UUID is `gnome-ascii-saver@local` while this project remains private.
 
 ## Use it
 
@@ -187,7 +192,8 @@ To remove the application, extension, and service while keeping your artwork:
 ```
 
 `gnome-ascii-saverctl uninstall` performs the same steps once the controller is
-installed; `./uninstall.sh` execs it when present.
+installed. `./uninstall.sh` execs that launcher when present, then the checkout
+`ctl.py`, so both paths stay on the controller.
 
 Delete `~/.config/gnome-ascii-saver/` separately only if you also want to
 remove your artwork and visual settings.
