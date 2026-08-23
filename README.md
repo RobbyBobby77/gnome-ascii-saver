@@ -2,7 +2,14 @@
 
 [![CI](https://github.com/RobbyBobby77/gnome-ascii-saver/actions/workflows/ci.yml/badge.svg)](https://github.com/RobbyBobby77/gnome-ascii-saver/actions/workflows/ci.yml)
 [![GNOME Shell 45–50](https://img.shields.io/badge/GNOME%20Shell-45–50-4A86CF?logo=gnome)](https://www.gnome.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Wayland and X11](https://img.shields.io/badge/display-Wayland_%7C_X11-6c63ff)](docs/RELEASE_CHECKLIST.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+An Omarchy-inspired animated ASCII idle screen for GNOME. It displays custom
+artwork with random
+[TerminalTextEffects](https://github.com/ChrisBuilds/terminaltexteffects)
+animations on every monitor, then disappears on the first keyboard or pointer
+input.
 
 ```text
    ██████╗ ███╗   ██╗ ██████╗ ███╗   ███╗███████╗
@@ -13,97 +20,96 @@
    ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝
 ```
 
-An Omarchy-inspired animated ASCII idle screen for GNOME. Your artwork is
-rendered through a random
-[TerminalTextEffects](https://github.com/ChrisBuilds/terminaltexteffects)
-animation in a clean GTK 4/VTE fullscreen window on every monitor.
-
 > [!IMPORTANT]
-> This is a decorative idle screen, not an authentication or security screen.
-> It never replaces, delays, or unlocks GNOME's lock screen.
+> GNOME ASCII Saver is decorative, not an authentication or security screen.
+> GNOME's lock screen remains responsible for securing the session. This
+> project does not replace, delay, unlock, or reconfigure it.
+
+## Install
+
+On a supported GNOME system, run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/RobbyBobby77/gnome-ascii-saver/main/install-online.sh | bash
+```
+
+The bootstrap downloads the latest stable tagged release, verifies its SHA-256
+checksum, and runs the bundled user-local installer. It never invokes `sudo`;
+if system packages are missing, the installer prints a command for you to
+review and run.
+
+To inspect the bootstrap before running it:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/RobbyBobby77/gnome-ascii-saver/main/install-online.sh
+less install-online.sh
+bash install-online.sh
+```
+
+You can also [install from a Git clone](docs/INSTALLATION.md#install-from-a-git-clone).
+See the [installation guide](docs/INSTALLATION.md) for dependencies, pinned
+versions, upgrades, rollbacks, and removal.
 
 ## What it does
 
-- Starts automatically after a configurable idle delay.
-- Creates one fullscreen GTK/VTE window per connected monitor.
-- Chooses a new terminal animation whenever an effect finishes.
-- Dismisses instantly on keyboard, pointer, click, or scroll activity.
-- Preserves GNOME's normal locking behavior, including `Super`+`L`.
-- Includes a preferences panel and a small command-line controller.
-- Uses an isolated Python environment and preserves your artwork on upgrades.
+- Shows editable ASCII artwork with randomly selected TTE animations.
+- Creates one fullscreen GTK 4/VTE window per connected monitor.
+- Uses GNOME Shell's native idle monitor for automatic activation.
+- Provides an optional systemd user-service fallback during extension loading.
+- Stops when the extension is disabled or GNOME transitions to its lock screen.
+- Provides a decorated preview, manual launch, preferences, and CLI controls.
+- Preserves user configuration and artwork across upgrades and uninstall.
 
-The current release is **0.1.0**. The native extension declares GNOME Shell
-45–50 compatibility and has been exercised live on GNOME Shell 50 under
-Wayland.
+## Requirements and status
 
-## Quick start on Linux
+GNOME ASCII Saver targets Linux distributions with GNOME Shell 45–50, Python
+3, GTK 4, PyGObject, and GTK4 VTE 3.91. Fedora/RHEL, Debian/Ubuntu,
+Arch-family, and openSUSE package commands are in the
+[distribution guide](docs/DISTRIBUTIONS.md). A systemd user manager is
+optional.
 
-Ask the project for the correct dependency command for the current distro:
+Version `0.1.0` is an initial preview. CI validates portable source and runtime
+dependencies on Fedora and Debian. The declared GNOME Shell, display protocol,
+and monitor combinations still require recorded desktop acceptance before the
+project should be described as stable; see the
+[release checklist](docs/RELEASE_CHECKLIST.md).
 
-```sh
-./scripts/dependency-hint.sh
-```
+## Use it
 
-Install those packages, then clone and install:
-
-```sh
-git clone git@github.com:RobbyBobby77/gnome-ascii-saver.git
-cd gnome-ascii-saver
-./install.sh
-```
-
-The repository is private, so the GitHub account or SSH key used to clone it
-must have access. HTTPS cloning works too:
+The installer places commands in `~/.local/bin`:
 
 ```sh
-git clone https://github.com/RobbyBobby77/gnome-ascii-saver.git
+gnome-ascii-saverctl start        # show the fullscreen saver now
+gnome-ascii-saverctl preview      # open a decorated preview window
+gnome-ascii-saverctl stop         # close it
+gnome-ascii-saverctl edit         # edit the ASCII artwork
+gnome-ascii-saverctl prefs        # open extension preferences
+gnome-ascii-saverctl delay 180    # set the idle delay in seconds
+gnome-ascii-saverctl disable      # pause automatic activation
+gnome-ascii-saverctl enable
+gnome-ascii-saverctl status
 ```
 
-On systemd-based desktops, the installer enables a user unit so idle
-activation works immediately, before the next logout. Log out and back in once
-if GNOME cannot load the newly installed extension in the current Shell
-session. After login the extension stops the fallback service and becomes the
-only idle watcher; turning the extension off or locking the screen does not
-start that service again. On a non-systemd distro, the native extension owns
-idle activation and may require that one logout/login before it can start.
-
-The controller and launchers are installed to `~/.local/bin`. Add that
-directory to `PATH` if `gnome-ascii-saverctl` is not found after install:
+If the command is not found, add the user binary directory to your shell path:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The installer also prints absolute paths you can invoke directly. The Shell
-extension UUID is `gnome-ascii-saver@local` while this project remains private.
-
-## Use it
-
-```sh
-gnome-ascii-saverctl start        # start fullscreen now
-gnome-ascii-saverctl preview      # open a decorated preview window
-gnome-ascii-saverctl stop         # close the saver
-gnome-ascii-saverctl edit         # edit the ASCII artwork
-gnome-ascii-saverctl delay 180    # set the idle delay in seconds
-gnome-ascii-saverctl disable      # pause automatic activation
-gnome-ascii-saverctl enable       # resume automatic activation
-gnome-ascii-saverctl prefs        # open extension preferences
-gnome-ascii-saverctl status       # show runtime and integration state
-```
-
-The default delay is 120 seconds. Press a key, move the pointer, click, or
+The default idle delay is 120 seconds. Press a key, move the pointer, click, or
 scroll to dismiss the saver.
 
 ## Customize it
 
-Your user-owned settings live outside the checkout and survive upgrades:
+Artwork and visual settings live under `~/.config/gnome-ascii-saver/` by
+default:
 
 ```text
 ~/.config/gnome-ascii-saver/logo.txt
 ~/.config/gnome-ascii-saver/config.json
 ```
 
-`config.json` accepts these values:
+Example configuration:
 
 ```json
 {
@@ -114,94 +120,73 @@ Your user-owned settings live outside the checkout and survive upgrades:
 }
 ```
 
-Run `gnome-ascii-saverctl stop` and start it again after changing visual
-settings. The idle delay and automatic-launch toggle can be changed live from
-the extension preferences.
+The project honors `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. Existing settings
+and artwork are not overwritten during upgrade or removed during uninstall.
+The automatic toggle and idle delay also appear in GNOME Extensions
+preferences.
 
-## Install on another computer
+## GNOME integration
 
-The easiest route is to clone the repository on the destination machine and
-run `./install.sh`. If that machine cannot access GitHub, create an archive on
-a machine that already has the checkout:
-
-```sh
-cd /path/to
-tar --exclude='.git' -czf gnome-ascii-saver-0.1.0.tar.gz gnome-ascii-saver
-```
-
-Copy the archive by USB, `scp`, or cloud storage, then install it on the other
-computer:
-
-```sh
-tar -xzf gnome-ascii-saver-0.1.0.tar.gz
-cd gnome-ascii-saver
-./install.sh
-gnome-ascii-saverctl status
-gnome-ascii-saverctl preview
-```
-
-Package names vary by distribution. Run `./scripts/dependency-hint.sh` for a
-Fedora/RHEL, Debian/Ubuntu, Arch, or openSUSE command, or see the complete
-[distribution guide](docs/DISTRIBUTIONS.md). The destination needs Python 3,
-GTK 4, PyGObject, GTK4 VTE, GLib schema tools, GNOME Shell, and internet access
-during installation so the isolated environment can fetch
-TerminalTextEffects. A systemd user manager is optional.
-
-To carry over your art and visual settings, copy this directory to the same
-location on the destination computer:
-
-```text
-~/.config/gnome-ascii-saver/
-```
-
-## How it fits into GNOME
+The native extension is the preferred idle integration. A systemd fallback
+can provide continuity until GNOME Shell loads a newly installed extension.
+Once the extension is active it stops the fallback, so only one idle watcher
+should run. On a non-systemd desktop, log out and back in once if the current
+Shell session cannot load the new extension immediately.
 
 ```text
 GNOME Shell extension ─┐
                       ├─ idle reached ─> GTK/VTE renderer ─> TTE animation
 systemd fallback* ────┘                         │
-                                               └─ activity ─> exit
+                                               └─ input ─> exit
 GNOME lock screen remains independent and authoritative
 
 * optional; used only when a systemd user manager is available
 ```
 
-The extension uses GNOME's core idle monitor and is the preferred integration.
-The fallback watcher uses Mutter's session D-Bus idle monitor until the Shell
-extension is available. Only one integration should be active at a time.
+See [Architecture](docs/ARCHITECTURE.md) for the process model and trust
+boundaries.
 
-See [Architecture](docs/ARCHITECTURE.md) for the process model,
-[Distributions](docs/DISTRIBUTIONS.md) for package-manager guidance,
-[Security](SECURITY.md) for the trust boundary, and
-[Contributing](CONTRIBUTING.md) for development checks.
+## Help and security
 
-## Upgrade or uninstall
-
-Pull the latest source and rerun the installer. Existing config and artwork
-are retained:
+Start diagnostics with:
 
 ```sh
-git pull --ff-only
-./install.sh
+gnome-ascii-saverctl --version
+gnome-ascii-saverctl status
+gnome-extensions info gnome-ascii-saver@robbybobby77.github.io
 ```
 
-To remove the application, extension, and service while keeping your artwork:
+If `status` reports the fallback service, also inspect:
 
 ```sh
-./uninstall.sh
+systemctl --user status gnome-ascii-saver.service
+journalctl --user -u gnome-ascii-saver.service -b
 ```
 
-`gnome-ascii-saverctl uninstall` performs the same steps once the controller is
-installed. `./uninstall.sh` execs that launcher when present, then the checkout
-`ctl.py`, so both paths stay on the controller.
+The [troubleshooting guide](docs/TROUBLESHOOTING.md) covers extension loading,
+Wayland/X11, multiple monitors, and systemd/non-systemd sessions. For general
+help, see [Support](SUPPORT.md); report vulnerabilities privately as described
+in [Security](SECURITY.md).
 
-Delete `~/.config/gnome-ascii-saver/` separately only if you also want to
-remove your artwork and visual settings.
+The application runs entirely as the logged-in user. It does not collect
+telemetry, upload artwork or settings, or require an account after
+installation. The online path fetches a release from GitHub and installs the
+version-pinned, hash-verified Python dependencies into an isolated environment.
+
+## Project documentation
+
+- [Installation and maintenance](docs/INSTALLATION.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Architecture and trust boundaries](docs/ARCHITECTURE.md)
+- [Distribution support](docs/DISTRIBUTIONS.md)
+- [Release and GNOME acceptance checklist](docs/RELEASE_CHECKLIST.md)
+- [Acceptance record template](docs/ACCEPTANCE-TEMPLATE.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Credits
 
-Inspired by the elegant terminal screensaver experience in
-[Omarchy](https://omarchy.org/) and powered by
-[TerminalTextEffects](https://github.com/ChrisBuilds/terminaltexteffects).
+- Inspired by [Omarchy](https://github.com/basecamp/omarchy)
+- Animated by [TerminalTextEffects](https://github.com/ChrisBuilds/terminaltexteffects)
+- Built with GNOME Shell, GTK, VTE, and PyGObject
 
-Licensed under the [MIT License](LICENSE).
+Released under the [MIT License](LICENSE).

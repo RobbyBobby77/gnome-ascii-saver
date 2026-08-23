@@ -46,8 +46,8 @@ class CtlStartStopTests(unittest.TestCase):
             path = Path(tmp) / "pid"
             path.write_text("99999\n", encoding="ascii")
             with patch.object(ctl, "pid_file_path", return_value=path), patch.object(
-                ctl, "current_saver_pid", return_value=99999
-            ), patch("ctl.os.kill", side_effect=ProcessLookupError):
+                ctl, "pid_from_file", return_value=99999
+            ), patch.object(ctl, "send_signal_if_matches", return_value=False):
                 ctl.command_stop()
         self.assertIn("not running", stdout.getvalue())
         self.assertFalse(path.exists())
@@ -57,8 +57,10 @@ class CtlStartStopTests(unittest.TestCase):
             path = Path(tmp) / "pid"
             path.write_text("1\n", encoding="ascii")
             with patch.object(ctl, "pid_file_path", return_value=path), patch.object(
-                ctl, "current_saver_pid", return_value=1
-            ), patch("ctl.os.kill", side_effect=PermissionError("denied")):
+                ctl, "pid_from_file", return_value=1
+            ), patch.object(
+                ctl, "send_signal_if_matches", side_effect=PermissionError("denied")
+            ):
                 with self.assertRaises(SystemExit) as raised:
                     ctl.command_stop()
         self.assertIn("could not stop", str(raised.exception).lower())
@@ -69,10 +71,30 @@ class CtlStartStopTests(unittest.TestCase):
             path = Path(tmp) / "pid"
             path.write_text("1\n", encoding="ascii")
             with patch.object(ctl, "pid_file_path", return_value=path), patch.object(
-                ctl, "current_saver_pid", return_value=1
-            ), patch("ctl.os.kill", side_effect=PermissionError("denied")):
+                ctl, "pid_from_file", return_value=1
+            ), patch.object(
+                ctl, "send_signal_if_matches", side_effect=PermissionError("denied")
+            ):
                 ctl.command_stop(quiet=True)
         self.assertIn("could not stop", stderr.getvalue().lower())
+
+    def test_uninstall_refuses_missing_hardened_script(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(ctl, "data_dir", Path(tmp)):
+            with self.assertRaises(SystemExit) as raised:
+                ctl.command_uninstall()
+        self.assertIn("hardened uninstaller is missing", str(raised.exception))
+
+    def test_uninstall_delegates_to_installed_script(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uninstaller = Path(tmp) / "uninstall.sh"
+            uninstaller.write_text("#!/bin/sh\n", encoding="utf-8")
+            uninstaller.chmod(0o700)
+            completed = unittest.mock.Mock(returncode=0)
+            with patch.object(ctl, "data_dir", Path(tmp)), patch(
+                "ctl.subprocess.run", return_value=completed
+            ) as run:
+                ctl.command_uninstall()
+        run.assert_called_once_with([str(uninstaller), "--non-interactive"], check=False)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,11 @@
 name: CI
 
 on:
+  workflow_call:
   push:
+    branches:
+      - main
+      - testing
   pull_request:
 
 permissions:
@@ -19,16 +23,17 @@ jobs:
             image: fedora:44
             install: |
               dnf install -y \
-                bash desktop-file-utils git glib2 gnome-shell \
-                gtk4 nodejs python3 python3-gobject vte291-gtk4
+                bash curl desktop-file-utils git glib2 gnome-shell \
+                gtk4 nodejs python3 python3-gobject python3-pip vte291-gtk4
           - name: Debian 13
             image: debian:trixie
             install: |
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y \
-                bash desktop-file-utils git gir1.2-gtk-4.0 gir1.2-vte-3.91 \
-                gnome-shell libglib2.0-bin nodejs python3 python3-gi
+                bash curl desktop-file-utils git gir1.2-gtk-4.0 gir1.2-vte-3.91 \
+                gnome-shell libglib2.0-bin nodejs python3 python3-gi python3-venv
     container: ${{ matrix.image }}
+
     steps:
       - name: Install validation dependencies
         run: ${{ matrix.install }}
@@ -36,31 +41,34 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v5
 
-      - name: Validate Python and shell syntax
-        run: |
-          python3 -m py_compile app.py ctl.py watcher.py helpers.py \
-            tests/test_helpers.py tests/test_ctl.py
-          python3 -m unittest discover -s tests -t . -v
-          bash -n install.sh uninstall.sh bin/gnome-ascii-saver \
-            bin/gnome-ascii-saverctl bin/gnome-ascii-saver-watcher \
-            scripts/dependency-hint.sh
+      - name: Trust the container workspace for release packaging
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Validate metadata, schema, and desktop entry
+      - name: Validate Python, shell, JSON, schema, and desktop metadata
+        shell: bash
         run: |
+          python3 -m py_compile app.py ctl.py watcher.py helpers.py
+          python3 -m unittest discover -s tests -t . -v
+          bash -n install.sh uninstall.sh install-online.sh \
+            bin/gnome-ascii-saver bin/gnome-ascii-saverctl \
+            bin/gnome-ascii-saver-watcher scripts/build-release.sh \
+            scripts/dependency-hint.sh tests/test_installers.sh
           python3 -m json.tool config/config.json >/dev/null
           python3 -m json.tool extension/metadata.json >/dev/null
           glib-compile-schemas --strict --dry-run extension/schemas
           sed 's|@EXEC@|/home/test/.local/bin/gnome-ascii-saver|' \
-            io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop.in \
+            io.github.RobbyBobby77.GnomeAsciiSaver.desktop.in \
             >/tmp/gnome-ascii-saver.desktop
           desktop-file-validate /tmp/gnome-ascii-saver.desktop
 
-      - name: Validate GNOME Shell JavaScript
+      - name: Validate GNOME Shell extension source and package
+        shell: bash
         run: |
           node --input-type=module --check <extension/extension.js
           node --input-type=module --check <extension/prefs.js
           mkdir -p /tmp/extension-pack
           gnome-extensions pack --force --out-dir /tmp/extension-pack extension
+          test "$(find /tmp/extension-pack -maxdepth 1 -name '*.shell-extension.zip' | wc -l)" -eq 1
 
       - name: Validate GTK and VTE bindings
         run: |
@@ -71,3 +79,23 @@ jobs:
           from gi.repository import Gtk, Vte
           assert Gtk and Vte
           PY
+
+      - name: Validate pinned TerminalTextEffects runtime
+        shell: bash
+        run: |
+          python3 -m venv --system-site-packages /tmp/gnome-ascii-saver-ci-venv
+          /tmp/gnome-ascii-saver-ci-venv/bin/python -m pip install \
+            --quiet --disable-pip-version-check --require-hashes \
+            -r requirements.txt
+          /tmp/gnome-ascii-saver-ci-venv/bin/tte --version
+
+      - name: Validate installers and release packaging
+        shell: bash
+        run: |
+          tests/test_installers.sh
+          release_dir=$(mktemp -d)
+          ./scripts/build-release.sh "$release_dir"
+          version=$(head -n 1 VERSION)
+          (cd "$release_dir" && sha256sum --check "gnome-ascii-saver-$version.tar.gz.sha256")
+          (cd "$release_dir" && sha256sum --check gnome-ascii-saver.tar.gz.sha256)
+          tar -tzf "$release_dir/gnome-ascii-saver-$version.tar.gz" >/dev/null

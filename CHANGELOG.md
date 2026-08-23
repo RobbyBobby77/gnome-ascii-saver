@@ -8,6 +8,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A checksum-verified online installer path with documented pinned releases,
+  upgrades, rollback, and configuration-preserving uninstall behavior.
+- Installation, troubleshooting, support, release acceptance, security, and
+  community documentation for a public launch.
+- Structured GitHub bug-report and feature-request forms plus a pull-request
+  checklist.
 - Dependency guidance for Fedora/RHEL, Debian/Ubuntu, Arch, openSUSE, and
   manually packaged distributions.
 - Fedora and Debian validation jobs in CI.
@@ -22,6 +28,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Replace private-repository and computer-handoff setup instructions with a
+  public one-command install path and reviewable alternatives.
+- Document the stable extension UUID as
+  `gnome-ascii-saver@robbybobby77.github.io`.
 - Resolve Python from `PATH` instead of assuming `/usr/bin/python3`.
 - Report unavailable systemd integration cleanly in the controller.
 - Do not start the systemd fallback from extension `disable()`, so lock-screen

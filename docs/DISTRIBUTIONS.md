@@ -6,7 +6,8 @@ GTK 4, PyGObject, the GTK4 build of VTE (`Vte 3.91`), GLib schema tools, and a
 working Python virtual-environment module.
 
 The installer never runs `sudo` or invokes a system package manager. Run the
-matching command yourself, review the packages, and then run `./install.sh`.
+matching command yourself, review the packages, and then use the recommended
+online install or run `./install.sh` from a reviewed checkout.
 `./scripts/dependency-hint.sh` prints the appropriate known command based on
 `/etc/os-release`.
 
@@ -59,7 +60,7 @@ Map these runtime capabilities to the native package manager:
 Then run:
 
 ```sh
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/RobbyBobby77/gnome-ascii-saver/main/install-online.sh | bash
 gnome-ascii-saverctl status
 gnome-ascii-saverctl preview
 ```
@@ -89,4 +90,6 @@ if Shell cannot activate the new extension immediately.
   schema compilation, extension packaging, and GTK/VTE bindings.
 - GNOME Shell 50 on Fedora Wayland has live runtime coverage.
 - Other listed distributions are package-mapped but still need desktop runtime
-  acceptance reports, especially across GNOME Shell major versions.
+acceptance reports, especially across GNOME Shell major versions. Metadata
+compatibility is not the same as real-session coverage; release notes must
+identify untested Shell versions and display arrangements.

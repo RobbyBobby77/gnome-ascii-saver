@@ -107,11 +107,40 @@ class LoadConfigTests(unittest.TestCase):
         self.assertIn("background", stderr.getvalue())
         self.assertIn("font", stderr.getvalue())
 
-    def test_named_color_is_accepted(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+    def test_named_color_is_rejected_for_tte_compatibility(self) -> None:
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, patch("sys.stderr", stderr):
             path = self._write(tmp, '{"background": "black"}')
             config = helpers.load_config(path)
-        self.assertEqual(config["background"], "black")
+        self.assertEqual(config["background"], "#000000")
+        self.assertIn("background", stderr.getvalue())
+
+    def test_non_six_digit_color_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '{"background": "#000"}')
+            config = helpers.load_config(path)
+        self.assertEqual(config["background"], "#000000")
+
+    def test_excessive_frame_rate_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '{"frame_rate": 1000000}')
+            config = helpers.load_config(path)
+        self.assertEqual(config["frame_rate"], 60)
+
+    def test_control_characters_in_font_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '{"font": "Monospace\\n999"}')
+            config = helpers.load_config(path)
+        self.assertEqual(config["font"], "Monospace 18")
+
+    def test_malformed_effect_names_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp,
+                '{"exclude_effects": ["matrix", "two words", "bad/name", "beams"]}',
+            )
+            config = helpers.load_config(path)
+        self.assertEqual(config["exclude_effects"], ["matrix", "beams"])
 
     def test_defaults_are_not_mutated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -162,6 +191,14 @@ class RuntimeDirTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 helpers.resolve_runtime_dir({}, uid=1, fallback_dir=blocked)
 
+    def test_rejects_group_writable_runtime_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unsafe"
+            path.mkdir(mode=0o770)
+            path.chmod(0o770)
+            with self.assertRaises(RuntimeError):
+                helpers.resolve_runtime_dir({"XDG_RUNTIME_DIR": str(path)})
+
 
 class PidFileTests(unittest.TestCase):
     def test_exclusive_create(self) -> None:
@@ -181,6 +218,40 @@ class PidFileTests(unittest.TestCase):
             path.write_text("1\n", encoding="ascii")
             helpers.write_pid_file(path, 99)
             self.assertEqual(path.read_text(encoding="ascii").strip(), "99")
+
+    def test_process_match_requires_exact_script_argument(self) -> None:
+        expected = Path("/opt/gnome-ascii-saver/app.py")
+        with patch(
+            "helpers._process_argv",
+            return_value=(b"/usr/bin/python3", b"/opt/gnome-ascii-saver/app.py"),
+        ):
+            self.assertTrue(helpers.process_matches_saver(42, expected))
+        with patch(
+            "helpers._process_argv",
+            return_value=(b"/usr/bin/python3", b"/tmp/app.py", b"gnome-ascii-saver"),
+        ):
+            self.assertFalse(helpers.process_matches_saver(42, expected))
+
+    def test_pidfd_signal_rechecks_identity(self) -> None:
+        matches = unittest.mock.Mock(side_effect=[True])
+        with patch("helpers.os.pidfd_open", return_value=17) as open_pidfd, patch(
+            "helpers.signal.pidfd_send_signal"
+        ) as send_pidfd, patch("helpers.os.close") as close_fd, patch(
+            "helpers.os.kill"
+        ) as kill:
+            self.assertTrue(helpers.send_signal_if_matches(42, 15, matches))
+        open_pidfd.assert_called_once_with(42)
+        send_pidfd.assert_called_once_with(17, 15)
+        close_fd.assert_called_once_with(17)
+        kill.assert_not_called()
+
+    def test_pidfd_signal_refuses_changed_identity(self) -> None:
+        with patch("helpers.os.pidfd_open", return_value=17), patch(
+            "helpers.signal.pidfd_send_signal"
+        ) as send_pidfd, patch("helpers.os.close") as close_fd:
+            self.assertFalse(helpers.send_signal_if_matches(42, 15, lambda _pid: False))
+        send_pidfd.assert_not_called()
+        close_fd.assert_called_once_with(17)
 
 
 class EditorArgvTests(unittest.TestCase):
@@ -307,20 +378,18 @@ class ActivationModeTests(unittest.TestCase):
 
 class DesktopEntryTests(unittest.TestCase):
     def test_exec_key_is_quoted(self) -> None:
-        text = (ROOT / "io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop.in").read_text(
+        text = (ROOT / "io.github.RobbyBobby77.GnomeAsciiSaver.desktop.in").read_text(
             encoding="utf-8"
         )
         self.assertRegex(text, r'(?m)^Exec="@EXEC@"$')
 
 
 class UninstallPathTests(unittest.TestCase):
-    def test_uninstall_sh_prefers_installed_ctl(self) -> None:
+    def test_uninstall_sh_is_the_authoritative_remover(self) -> None:
         text = (ROOT / "uninstall.sh").read_text(encoding="utf-8")
-        ctl_exec = text.find('exec "$ctl" uninstall')
-        source_exec = text.find('exec python3 "$source_dir/ctl.py" uninstall')
-        self.assertNotEqual(ctl_exec, -1)
-        self.assertNotEqual(source_exec, -1)
-        self.assertLess(ctl_exec, source_exec)
+        self.assertIn("--no-stop", text)
+        self.assertIn("gnome-ascii-saver@robbybobby77.github.io", text)
+        self.assertNotIn('exec "$ctl" uninstall', text)
 
 
 class ExtensionPolicyTests(unittest.TestCase):
@@ -331,6 +400,26 @@ class ExtensionPolicyTests(unittest.TestCase):
         disable = text.split("disable() {", 1)[1].split("\n    _manageFallback", 1)[0]
         self.assertIn("must not start the fallback", disable)
         self.assertNotIn("_manageFallback(", disable)
+
+    def test_extension_uses_stable_public_uuid_and_url(self) -> None:
+        metadata = json.loads((ROOT / "extension" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["uuid"], "gnome-ascii-saver@robbybobby77.github.io")
+        self.assertEqual(metadata["url"], "https://github.com/RobbyBobby77/gnome-ascii-saver")
+
+    def test_extension_only_arms_after_fallback_stop_succeeds(self) -> None:
+        text = (ROOT / "extension" / "extension.js").read_text(encoding="utf-8")
+        self.assertIn("this._ownsIdleActivation = successful", text)
+        self.assertIn("!this._ownsIdleActivation", text)
+
+
+class ApplicationIdentityTests(unittest.TestCase):
+    def test_app_uses_reverse_dns_github_identity(self) -> None:
+        text = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn('APP_ID = "io.github.RobbyBobby77.GnomeAsciiSaver"', text)
+
+    def test_input_controllers_capture_before_vte(self) -> None:
+        text = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertEqual(text.count("set_propagation_phase(Gtk.PropagationPhase.CAPTURE)"), 4)
 
 
 if __name__ == "__main__":
