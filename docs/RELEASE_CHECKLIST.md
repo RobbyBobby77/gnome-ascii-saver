@@ -6,6 +6,9 @@ observed in real GNOME sessions. Copy
 the distribution, Shell version, session protocol, monitor arrangement, init
 system, and result of every available case.
 
+The current private preview evidence is recorded in
+[the 0.1.0 acceptance record](ACCEPTANCE-0.1.0.md).
+
 ## Repository and documentation
 
 - [ ] `VERSION`, extension `version-name`, changelog heading, tag, and release title agree.

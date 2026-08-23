@@ -180,6 +180,7 @@ version-pinned, hash-verified Python dependencies into an isolated environment.
 - [Architecture and trust boundaries](docs/ARCHITECTURE.md)
 - [Distribution support](docs/DISTRIBUTIONS.md)
 - [Release and GNOME acceptance checklist](docs/RELEASE_CHECKLIST.md)
+- [0.1.0 acceptance record](docs/ACCEPTANCE-0.1.0.md)
 - [Acceptance record template](docs/ACCEPTANCE-TEMPLATE.md)
 - [Contributing](CONTRIBUTING.md)
 
