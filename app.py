@@ -30,7 +30,7 @@ from helpers import (  # noqa: E402
 )
 
 
-APP_ID = "io.github.gnome_ascii_saver.GnomeAsciiSaver"
+APP_ID = "io.github.RobbyBobby77.GnomeAsciiSaver"
 VERSION = read_version()
 
 
@@ -49,6 +49,7 @@ class SaverWindow(Gtk.ApplicationWindow):
         self.windowed = windowed
         self.armed = False
         self.running = False
+        self.closing = False
         self.tte_failures = 0
         self.cancellable = Gio.Cancellable()
         self.set_decorated(windowed)
@@ -67,15 +68,19 @@ class SaverWindow(Gtk.ApplicationWindow):
         self.set_child(self.terminal)
 
         key = Gtk.EventControllerKey()
+        key.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         key.connect("key-pressed", self._dismiss)
         self.add_controller(key)
         motion = Gtk.EventControllerMotion()
+        motion.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         motion.connect("motion", self._dismiss)
         self.add_controller(motion)
         click = Gtk.GestureClick()
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         click.connect("pressed", self._dismiss)
         self.add_controller(click)
         scroll = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES)
+        scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         scroll.connect("scroll", self._dismiss)
         self.add_controller(scroll)
 
@@ -139,7 +144,7 @@ class SaverWindow(Gtk.ApplicationWindow):
         return argv
 
     def _start(self) -> bool:
-        if self.app.stopping or self.running:
+        if self.app.stopping or self.closing or self.running:
             return GLib.SOURCE_REMOVE
         self.running = True
         self.terminal.spawn_async(
@@ -159,18 +164,21 @@ class SaverWindow(Gtk.ApplicationWindow):
     def _on_spawned(self, _terminal, pid, error, _data) -> None:
         if error is not None:
             self.running = False
+            if self.app.stopping or self.closing or self.cancellable.is_cancelled():
+                return
             print(f"gnome-ascii-saver: could not start animation: {error.message}", file=sys.stderr)
             self.app.quit_saver()
         elif pid == -1:
             self.running = False
-            self.app.quit_saver()
+            if not self.app.stopping and not self.closing:
+                self.app.quit_saver()
 
     def _on_child_exited(self, _terminal, status) -> None:
         self.running = False
         if self.app.once:
             self.app.quit_saver()
             return
-        if self.app.stopping:
+        if self.app.stopping or self.closing:
             return
         if tte_exit_ok(status):
             self.tte_failures = 0
@@ -205,8 +213,12 @@ class SaverApplication(Gtk.Application):
         self.config = load_config(config_dir() / "config.json")
         self.stopping = False
         self.pid_file: Path | None = None
-        self._monitor_added_id = 0
-        self._monitor_removed_id = 0
+        self._monitors = None
+        self._monitors_changed_id = 0
+        self._screen_lock_bus: Gio.DBusConnection | None = None
+        self._screen_lock_subscriptions: list[int] = []
+        self._screen_lock_ready = False
+        self._screen_lock_query_pending = False
         self.set_option_context_summary("Omarchy-style ASCII screensaver for GNOME")
         self.add_main_option(
             "windowed",
@@ -248,6 +260,14 @@ class SaverApplication(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        if not self._watch_screen_lock():
+            print(
+                "gnome-ascii-saver: could not monitor the GNOME lock screen; refusing to start",
+                file=sys.stderr,
+            )
+            self.stopping = True
+            self.quit()
+            return
         css = Gtk.CssProvider()
         css.load_from_data(b"window, vte-terminal { background: #000; padding: 0; margin: 0; }")
         Gtk.StyleContext.add_provider_for_display(
@@ -262,6 +282,10 @@ class SaverApplication(Gtk.Application):
         return all(window.windowed for window in windows)
 
     def _close_window(self, window: SaverWindow) -> None:
+        if window.closing:
+            return
+        window.closing = True
+        window.cancellable.cancel()
         try:
             window.terminal.feed_child(bytes((3,)))
         except GLib.Error:
@@ -276,51 +300,180 @@ class SaverApplication(Gtk.Application):
         if self.windowed:
             SaverWindow(self, None, True)
             return
-        display = Gdk.Display.get_default()
-        monitors = display.get_monitors() if display else None
-        count = monitors.get_n_items() if monitors else 0
-        if count:
-            for index in range(count):
-                SaverWindow(self, monitors.get_item(index), False)
-        else:
-            SaverWindow(self, None, False)
+        self._sync_monitor_windows()
 
     def _listen_for_monitors(self, enabled: bool) -> None:
-        display = Gdk.Display.get_default()
         if enabled:
-            if display is None or self._monitor_added_id:
+            display = Gdk.Display.get_default()
+            if display is None or self._monitors_changed_id:
                 return
-            self._monitor_added_id = display.connect("monitor-added", self._on_monitor_added)
-            self._monitor_removed_id = display.connect("monitor-removed", self._on_monitor_removed)
+            self._monitors = display.get_monitors()
+            self._monitors_changed_id = self._monitors.connect(
+                "items-changed", self._on_monitors_changed
+            )
             return
-        if display is not None:
-            if self._monitor_added_id:
-                display.disconnect(self._monitor_added_id)
-            if self._monitor_removed_id:
-                display.disconnect(self._monitor_removed_id)
-        self._monitor_added_id = 0
-        self._monitor_removed_id = 0
+        if self._monitors is not None and self._monitors_changed_id:
+            self._monitors.disconnect(self._monitors_changed_id)
+        self._monitors = None
+        self._monitors_changed_id = 0
 
-    def _on_monitor_added(self, _display, monitor) -> None:
+    def _on_monitors_changed(self, _model, _position, _removed, _added) -> None:
+        self._sync_monitor_windows()
+
+    def _sync_monitor_windows(self) -> None:
+        """Keep exactly one fullscreen window on each current monitor."""
         if self.stopping or self.windowed:
             return
-        for window in list(self.get_windows()):
-            if window.monitor is monitor:
-                return
-            if window.monitor is None and not window.windowed:
-                self._close_window(window)
-        SaverWindow(self, monitor, False)
-
-    def _on_monitor_removed(self, _display, monitor) -> None:
-        if self.windowed:
+        monitors = self._monitors
+        desired = (
+            [monitors.get_item(index) for index in range(monitors.get_n_items())]
+            if monitors is not None
+            else []
+        )
+        fullscreen = [window for window in self.get_windows() if not window.windowed]
+        if not desired:
+            for window in fullscreen:
+                if window.monitor is not None:
+                    self._close_window(window)
+            if not any(
+                not window.windowed and window.monitor is None for window in self.get_windows()
+            ):
+                SaverWindow(self, None, False)
             return
-        for window in list(self.get_windows()):
-            if window.monitor is monitor:
+
+        for window in fullscreen:
+            if window.monitor is None or not any(window.monitor is monitor for monitor in desired):
                 self._close_window(window)
-        if not self.get_windows() and not self.stopping:
+        for monitor in desired:
+            if not any(
+                not window.windowed and window.monitor is monitor for window in self.get_windows()
+            ):
+                SaverWindow(self, monitor, False)
+
+    def _watch_screen_lock(self) -> bool:
+        """Subscribe before creating windows, then query current lock state."""
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        except GLib.Error:
+            return False
+        if bus is None:
+            return False
+        self._screen_lock_bus = bus
+        self._screen_lock_subscriptions = [
+            bus.signal_subscribe(
+                "org.gnome.ScreenSaver",
+                "org.gnome.ScreenSaver",
+                "ActiveChanged",
+                "/org/gnome/ScreenSaver",
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._on_active_changed,
+                None,
+            ),
+            bus.signal_subscribe(
+                "org.freedesktop.DBus",
+                "org.freedesktop.DBus",
+                "NameOwnerChanged",
+                "/org/freedesktop/DBus",
+                "org.gnome.ScreenSaver",
+                Gio.DBusSignalFlags.NONE,
+                self._on_screen_saver_owner_changed,
+                None,
+            ),
+        ]
+        self.hold()
+        self._screen_lock_query_pending = True
+        try:
+            bus.call(
+                "org.gnome.ScreenSaver",
+                "/org/gnome/ScreenSaver",
+                "org.gnome.ScreenSaver",
+                "GetActive",
+                None,
+                GLib.VariantType.new("(b)"),
+                Gio.DBusCallFlags.NONE,
+                1000,
+                None,
+                self._on_get_active_finished,
+                None,
+            )
+        except (GLib.Error, TypeError):
+            self._finish_screen_lock_query()
+            return False
+        return True
+
+    def _finish_screen_lock_query(self) -> None:
+        if self._screen_lock_query_pending:
+            self._screen_lock_query_pending = False
+            self.release()
+
+    def _on_active_changed(
+        self,
+        _connection,
+        _sender_name,
+        _object_path,
+        _interface_name,
+        _signal_name,
+        parameters,
+        _user_data,
+    ) -> None:
+        try:
+            active = bool(parameters.unpack()[0])
+        except (AttributeError, IndexError, TypeError):
+            print("gnome-ascii-saver: malformed lock-screen signal; exiting", file=sys.stderr)
+            self.quit_saver()
+            return
+        if active:
             self.quit_saver()
 
+    def _on_screen_saver_owner_changed(
+        self,
+        _connection,
+        _sender_name,
+        _object_path,
+        _interface_name,
+        _signal_name,
+        parameters,
+        _user_data,
+    ) -> None:
+        try:
+            name, _old_owner, new_owner = parameters.unpack()
+        except (AttributeError, TypeError, ValueError):
+            self.quit_saver()
+            return
+        if name == "org.gnome.ScreenSaver" and not new_owner:
+            print("gnome-ascii-saver: lock-screen service disappeared; exiting", file=sys.stderr)
+            self.quit_saver()
+
+    def _on_get_active_finished(self, connection, result, _user_data) -> None:
+        try:
+            active = bool(connection.call_finish(result).unpack()[0])
+        except (GLib.Error, AttributeError, IndexError, TypeError) as error:
+            if not self.stopping:
+                print(
+                    f"gnome-ascii-saver: could not query the GNOME lock screen: {error}",
+                    file=sys.stderr,
+                )
+                self.stopping = True
+                self._finish_screen_lock_query()
+                self.quit()
+            return
+        if self.stopping:
+            self._finish_screen_lock_query()
+            return
+        if active:
+            self._finish_screen_lock_query()
+            self.quit_saver()
+            return
+        self._screen_lock_ready = True
+        self.activate()
+        self._finish_screen_lock_query()
+
     def do_activate(self) -> None:
+        # Never create an overlay until the initial GetActive reply proves the
+        # session is unlocked.
+        if self.stopping or not self._screen_lock_ready:
+            return
         existing = self._existing_windowed()
         if existing is not None:
             if not windows_need_rebuild(existing, self.windowed):
@@ -350,6 +503,13 @@ class SaverApplication(Gtk.Application):
 
     def do_shutdown(self) -> None:
         self._listen_for_monitors(False)
+        bus = self._screen_lock_bus
+        if bus is not None:
+            for subscription in self._screen_lock_subscriptions:
+                bus.signal_unsubscribe(subscription)
+        self._screen_lock_subscriptions = []
+        self._screen_lock_bus = None
+        self._finish_screen_lock_query()
         pid_file = self.pid_file
         if pid_file is not None:
             try:

@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shlex
 import shutil
+import stat
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 
@@ -21,6 +23,9 @@ DEFAULT_CONFIG = {
 TTE_SUCCESS_RESTART_MS = 80
 TTE_MAX_FAILURES = 5
 FALLBACK_VERSION = "0.1.0"
+MAX_FRAME_RATE = 240
+MAX_FONT_LENGTH = 200
+MAX_EXCLUDED_EFFECTS = 128
 CONFIG_DIR_ENV = "GNOME_ASCII_SAVER_CONFIG_DIR"
 DATA_DIR_ENV = "GNOME_ASCII_SAVER_DATA_DIR"
 TTE_ENV = "GNOME_ASCII_SAVER_TTE"
@@ -101,21 +106,23 @@ def read_version(here: Path | None = None) -> str:
 
 
 def _valid_color(value: object) -> bool:
+    """Return whether *value* works in both GDK and TTE."""
     if not isinstance(value, str):
         return False
     text = value.strip()
-    if not text or text.startswith("-"):
-        return False
-    if text.startswith("#"):
-        digits = text[1:]
-        return len(digits) in {3, 4, 6, 8} and all(char in "0123456789abcdefABCDEF" for char in digits)
-    return True
+    digits = text[1:] if text.startswith("#") else ""
+    return len(digits) == 6 and all(char in "0123456789abcdefABCDEF" for char in digits)
 
 
 def _apply_config(config: dict, loaded: dict, origin: Path) -> dict:
     font = loaded.get("font", config["font"])
-    if isinstance(font, str) and font.strip():
-        config["font"] = font
+    if (
+        isinstance(font, str)
+        and font.strip()
+        and len(font) <= MAX_FONT_LENGTH
+        and font.isprintable()
+    ):
+        config["font"] = font.strip()
     elif "font" in loaded:
         _warn(f"{origin}: ignoring invalid font {font!r}")
 
@@ -127,8 +134,15 @@ def _apply_config(config: dict, loaded: dict, origin: Path) -> dict:
 
     if "frame_rate" in loaded:
         frame_rate = loaded["frame_rate"]
-        if isinstance(frame_rate, bool) or not isinstance(frame_rate, int) or frame_rate < 1:
-            _warn(f"{origin}: ignoring invalid frame_rate {frame_rate!r}; using {config['frame_rate']}")
+        if (
+            isinstance(frame_rate, bool)
+            or not isinstance(frame_rate, int)
+            or not 1 <= frame_rate <= MAX_FRAME_RATE
+        ):
+            _warn(
+                f"{origin}: ignoring invalid frame_rate {frame_rate!r}; "
+                f"expected 1-{MAX_FRAME_RATE}, using {config['frame_rate']}"
+            )
         else:
             config["frame_rate"] = frame_rate
 
@@ -138,14 +152,27 @@ def _apply_config(config: dict, loaded: dict, origin: Path) -> dict:
             _warn(f"{origin}: exclude_effects must be a list of names; using defaults")
         else:
             cleaned: list[str] = []
-            for item in excluded:
-                if not isinstance(item, str) or not item:
+            for item in excluded[:MAX_EXCLUDED_EFFECTS]:
+                if (
+                    not isinstance(item, str)
+                    or not item
+                    or len(item) > 64
+                    or not all(char.isascii() and (char.isalnum() or char in "_-") for char in item)
+                ):
                     _warn(f"{origin}: ignoring invalid exclude_effects entry {item!r}")
                     continue
                 if item.startswith("-"):
-                    _warn(f"{origin}: ignoring exclude_effects entry {item!r} because it starts with '-'")
+                    _warn(
+                        f"{origin}: ignoring exclude_effects entry {item!r} "
+                        "because it starts with '-'"
+                    )
                     continue
                 cleaned.append(item)
+            if len(excluded) > MAX_EXCLUDED_EFFECTS:
+                _warn(
+                    f"{origin}: ignoring exclude_effects entries after "
+                    f"the first {MAX_EXCLUDED_EFFECTS}"
+                )
             config["exclude_effects"] = cleaned
     return config
 
@@ -204,19 +231,24 @@ def resolve_runtime_dir(
     environ = os.environ if env is None else env
     resolved_uid = os.getuid() if uid is None else uid
     xdg = environ.get("XDG_RUNTIME_DIR")
-    if xdg:
-        path = Path(xdg).expanduser()
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        return path
-    path = Path(fallback_dir) if fallback_dir is not None else Path(f"/run/user/{resolved_uid}")
+    path = (
+        Path(xdg).expanduser()
+        if xdg
+        else Path(fallback_dir) if fallback_dir is not None else Path(f"/run/user/{resolved_uid}")
+    )
     try:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        status = path.lstat()
     except OSError as error:
         raise RuntimeError(
-            f"XDG_RUNTIME_DIR is unset and {path} cannot be used as a runtime directory: {error}"
+            f"{path} cannot be used as a private runtime directory: {error}"
         ) from error
+    if not stat.S_ISDIR(status.st_mode) or stat.S_ISLNK(status.st_mode):
+        raise RuntimeError(f"{path} is not a real runtime directory")
+    if status.st_uid != os.getuid() or stat.S_IMODE(status.st_mode) & 0o077:
+        raise RuntimeError(f"{path} is not private to the current user")
     if not os.access(path, os.W_OK | os.X_OK):
-        raise RuntimeError(f"XDG_RUNTIME_DIR is unset and {path} is not writable")
+        raise RuntimeError(f"{path} is not writable")
     return path
 
 
@@ -232,12 +264,68 @@ def pid_file_path(
     )
 
 
-def process_matches_saver(pid: int) -> bool:
+def _process_argv(pid: int) -> tuple[bytes, ...]:
+    if pid <= 0:
+        return ()
     try:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
+        return ()
+    return tuple(argument for argument in cmdline.split(b"\0") if argument)
+
+
+def process_matches_saver(pid: int, expected_script: Path | None = None) -> bool:
+    """Match the renderer's exact absolute Python script argument."""
+    argv = _process_argv(pid)
+    script = (
+        Path(__file__).resolve().with_name("app.py")
+        if expected_script is None
+        else expected_script
+    )
+    if len(argv) < 2:
         return False
-    return b"gnome-ascii-saver" in cmdline or b"app.py" in cmdline
+    try:
+        actual_script = Path(os.fsdecode(argv[1])).resolve(strict=False)
+    except UnicodeError:
+        return False
+    return actual_script == script.resolve(strict=False)
+
+
+def pid_from_file(path: Path, matches: Callable[[int], bool]) -> int | None:
+    try:
+        pid = int(path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return None
+    return pid if matches(pid) else None
+
+
+def send_signal_if_matches(pid: int, signum: int, matches: Callable[[int], bool]) -> bool:
+    """Signal a matching process without redirecting a signal after PID reuse."""
+    pidfd_open = getattr(os, "pidfd_open", None)
+    pidfd_send_signal = getattr(signal, "pidfd_send_signal", None)
+    if pidfd_open is not None and pidfd_send_signal is not None:
+        try:
+            descriptor = pidfd_open(pid)
+        except ProcessLookupError:
+            return False
+        try:
+            if not matches(pid):
+                return False
+            try:
+                pidfd_send_signal(descriptor, signum)
+            except ProcessLookupError:
+                return False
+            return True
+        finally:
+            os.close(descriptor)
+
+    if not matches(pid):
+        return False
+    try:
+        os.kill(pid, signum)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def pid_file_is_stale(path: Path) -> bool:
@@ -270,10 +358,9 @@ def write_pid_file(path: Path, pid: int) -> Path:
 def current_saver_pid(path: Path | None = None) -> int | None:
     try:
         pid_path = path if path is not None else pid_file_path()
-        pid = int(pid_path.read_text(encoding="ascii").strip())
-    except (OSError, ValueError, RuntimeError):
+    except RuntimeError:
         return None
-    return pid if process_matches_saver(pid) else None
+    return pid_from_file(pid_path, process_matches_saver)
 
 
 def editor_argv(editor: str) -> list[str]:

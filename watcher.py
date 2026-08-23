@@ -16,7 +16,7 @@ from gi.repository import Gio, GLib  # noqa: E402
 from helpers import renderer_command, renderer_environ, xdg_path  # noqa: E402
 
 
-UUID = "gnome-ascii-saver@local"
+UUID = "gnome-ascii-saver@robbybobby77.github.io"
 SCHEMA = "org.gnome.shell.extensions.gnome-ascii-saver"
 # Schemas stay under XDG_DATA_HOME; the renderer tree uses helpers.data_dir().
 extension_dir = (
@@ -56,10 +56,20 @@ class IdleWatcher:
             "org.gnome.ScreenSaver",
             None,
         )
+        self.extensions_proxy = Gio.DBusProxy.new_for_bus_sync(
+            Gio.BusType.SESSION,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            "org.gnome.Shell",
+            "/org/gnome/Shell/Extensions",
+            "org.gnome.Shell.Extensions",
+            None,
+        )
         # Installing or restarting the service should not immediately cover an
         # already-idle desktop. Arm after the next real user interaction.
         self.ready = self._idle_msec() < max(10, self.settings.get_uint("idle-delay")) * 1000
         self._lock_unknown_logged = False
+        self._extension_unknown_logged = False
 
     def _idle_msec(self) -> int:
         result = self.idle_proxy.call_sync("GetIdletime", None, Gio.DBusCallFlags.NONE, 1000, None)
@@ -67,16 +77,59 @@ class IdleWatcher:
 
     def _screen_locked(self) -> bool:
         try:
-            result = self.screen_proxy.call_sync("GetActive", None, Gio.DBusCallFlags.NONE, 1000, None)
+            result = self.screen_proxy.call_sync(
+                "GetActive", None, Gio.DBusCallFlags.NONE, 1000, None
+            )
             self._lock_unknown_logged = False
             return bool(result.unpack()[0])
         except GLib.Error as error:
             if not self._lock_unknown_logged:
                 print(
-                    f"gnome-ascii-saver watcher: lock state unknown ({error.message}); not launching",
+                    "gnome-ascii-saver watcher: lock state unknown "
+                    f"({error.message}); not launching",
                     file=sys.stderr,
                 )
                 self._lock_unknown_logged = True
+            return True
+
+    def _extension_active(self) -> bool:
+        """Fail closed if fallback/extension ownership cannot be determined."""
+        try:
+            result = self.extensions_proxy.call_sync(
+                "GetExtensionInfo",
+                GLib.Variant("(s)", (UUID,)),
+                Gio.DBusCallFlags.NONE,
+                1000,
+                None,
+            )
+            unpacked = result.unpack()
+            info = unpacked[0]
+            if not isinstance(info, dict) or "state" not in info:
+                raise ValueError("extension state was missing")
+            state = info["state"]
+            while hasattr(state, "unpack"):
+                state = state.unpack()
+            self._extension_unknown_logged = False
+            # GNOME 45 calls these ENABLED/ENABLING/DISABLING; newer Shell
+            # calls them ACTIVE/ACTIVATING/DEACTIVATING. Treat transition
+            # states as extension-owned too so the fallback cannot race an
+            # enable or disable operation.
+            return state in {1, 7, 8} or str(state).upper() in {
+                "ACTIVE",
+                "ACTIVATING",
+                "DEACTIVATING",
+                "ENABLED",
+                "ENABLING",
+                "DISABLING",
+            }
+        except (GLib.Error, AttributeError, IndexError, TypeError, ValueError) as error:
+            if not self._extension_unknown_logged:
+                print(
+                    "gnome-ascii-saver watcher: extension state unknown "
+                    f"({error}); not launching",
+                    file=sys.stderr,
+                )
+                self._extension_unknown_logged = True
             return True
 
     def _start(self) -> None:
@@ -106,6 +159,10 @@ class IdleWatcher:
             self.process = None
         try:
             enabled = self.settings.get_boolean("enabled")
+            if self._extension_active():
+                if self.process is not None:
+                    self._stop()
+                return GLib.SOURCE_CONTINUE
             idle = self._idle_msec()
             locked = self._screen_locked()
             threshold = max(10, self.settings.get_uint("idle-delay")) * 1000
