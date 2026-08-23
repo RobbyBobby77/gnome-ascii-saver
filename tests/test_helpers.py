@@ -378,20 +378,18 @@ class ActivationModeTests(unittest.TestCase):
 
 class DesktopEntryTests(unittest.TestCase):
     def test_exec_key_is_quoted(self) -> None:
-        text = (ROOT / "io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop.in").read_text(
+        text = (ROOT / "io.github.RobbyBobby77.GnomeAsciiSaver.desktop.in").read_text(
             encoding="utf-8"
         )
         self.assertRegex(text, r'(?m)^Exec="@EXEC@"$')
 
 
 class UninstallPathTests(unittest.TestCase):
-    def test_uninstall_sh_prefers_installed_ctl(self) -> None:
+    def test_uninstall_sh_is_the_authoritative_remover(self) -> None:
         text = (ROOT / "uninstall.sh").read_text(encoding="utf-8")
-        ctl_exec = text.find('exec "$ctl" uninstall')
-        source_exec = text.find('exec python3 "$source_dir/ctl.py" uninstall')
-        self.assertNotEqual(ctl_exec, -1)
-        self.assertNotEqual(source_exec, -1)
-        self.assertLess(ctl_exec, source_exec)
+        self.assertIn("--no-stop", text)
+        self.assertIn("gnome-ascii-saver@robbybobby77.github.io", text)
+        self.assertNotIn('exec "$ctl" uninstall', text)
 
 
 class ExtensionPolicyTests(unittest.TestCase):
