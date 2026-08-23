@@ -17,9 +17,12 @@ export default class GnomeAsciiSaverExtension extends Extension {
         this._killSourceId = 0;
         this._idleMonitor = global.backend?.get_core_idle_monitor?.() ?? Meta.IdleMonitor.get_core();
         this._settings = this.getSettings();
-        this._manageFallback('stop');
         this._settingsChangedId = this._settings.connect('changed', () => this._reconfigure());
-        this._reconfigure();
+        // Wait for stop so the fallback cannot launch alongside the extension.
+        this._manageFallback('stop', () => {
+            if (!this._disabled)
+                this._reconfigure();
+        });
     }
 
     disable() {
@@ -34,22 +37,41 @@ export default class GnomeAsciiSaverExtension extends Extension {
         // Lock-screen teardown and user disable must not start the fallback.
     }
 
-    _manageFallback(action) {
+    _manageFallback(action, onDone) {
+        const done = () => {
+            if (onDone)
+                onDone();
+        };
         const unit = GLib.build_filenamev([
             GLib.get_user_config_dir(),
             'systemd',
             'user',
             'gnome-ascii-saver.service',
         ]);
-        if (!GLib.find_program_in_path('systemctl') || !GLib.file_test(unit, GLib.FileTest.EXISTS))
+        if (!GLib.find_program_in_path('systemctl') || !GLib.file_test(unit, GLib.FileTest.EXISTS)) {
+            done();
             return;
+        }
         try {
-            Gio.Subprocess.new(
+            const process = Gio.Subprocess.new(
                 ['systemctl', '--user', action, 'gnome-ascii-saver.service'],
                 Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE
             );
+            process.wait_async(null, (_source, result) => {
+                try {
+                    process.wait_finish(result);
+                    if (!process.get_successful()) {
+                        const status = process.get_if_exited() ? process.get_exit_status() : 'unknown';
+                        console.error(`Unable to ${action} GNOME ASCII Saver fallback (status ${status})`);
+                    }
+                } catch (error) {
+                    console.error(`Unable to ${action} GNOME ASCII Saver fallback: ${error.message}`);
+                }
+                done();
+            });
         } catch (error) {
             console.error(`Unable to ${action} GNOME ASCII Saver fallback: ${error.message}`);
+            done();
         }
     }
 

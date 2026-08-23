@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import json
 import stat
 import sys
 import tempfile
@@ -11,7 +12,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import helpers  # noqa: E402
 
@@ -206,6 +208,81 @@ class VersionTests(unittest.TestCase):
     def test_missing_version_file_uses_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(helpers.read_version(Path(tmp)), helpers.FALLBACK_VERSION)
+
+    def test_metadata_version_name_matches_version_file(self) -> None:
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        metadata = json.loads((ROOT / "extension" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["version-name"], version)
+
+
+class PathOverrideTests(unittest.TestCase):
+    def test_config_dir_override(self) -> None:
+        path = helpers.config_dir({helpers.CONFIG_DIR_ENV: "/tmp/custom-config"})
+        self.assertEqual(path, Path("/tmp/custom-config"))
+
+    def test_config_dir_uses_xdg_when_unset(self) -> None:
+        path = helpers.config_dir({"XDG_CONFIG_HOME": "/tmp/xdg-config"})
+        self.assertEqual(path, Path("/tmp/xdg-config") / "gnome-ascii-saver")
+
+    def test_data_dir_override(self) -> None:
+        path = helpers.data_dir({helpers.DATA_DIR_ENV: "/tmp/custom-data"})
+        self.assertEqual(path, Path("/tmp/custom-data"))
+
+    def test_data_dir_uses_xdg_when_unset(self) -> None:
+        path = helpers.data_dir({"XDG_DATA_HOME": "/tmp/xdg-data"})
+        self.assertEqual(path, Path("/tmp/xdg-data") / "gnome-ascii-saver")
+
+    def test_empty_override_is_ignored(self) -> None:
+        path = helpers.config_dir(
+            {helpers.CONFIG_DIR_ENV: "", "XDG_CONFIG_HOME": "/tmp/xdg-config"}
+        )
+        self.assertEqual(path, Path("/tmp/xdg-config") / "gnome-ascii-saver")
+
+    def test_tte_override_uses_existing_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tte = Path(tmp) / "fake-tte"
+            tte.write_text("", encoding="utf-8")
+            path = helpers.tte_path({helpers.TTE_ENV: str(tte)})
+            self.assertEqual(path, tte)
+
+    def test_tte_override_missing_falls_back_to_path(self) -> None:
+        path = helpers.tte_path({helpers.TTE_ENV: "/no/such/tte-binary"})
+        self.assertEqual(path, Path("tte"))
+
+    def test_tte_from_data_dir_venv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tte = Path(tmp) / "venv" / "bin" / "tte"
+            tte.parent.mkdir(parents=True)
+            tte.write_text("", encoding="utf-8")
+            path = helpers.tte_path({helpers.DATA_DIR_ENV: tmp})
+            self.assertEqual(path, tte)
+
+    def test_tte_missing_venv_falls_back_to_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = helpers.tte_path({helpers.DATA_DIR_ENV: tmp})
+            self.assertEqual(path, Path("tte"))
+
+
+class ActivationModeTests(unittest.TestCase):
+    def test_no_existing_windows(self) -> None:
+        self.assertFalse(helpers.windows_need_rebuild(None, False))
+        self.assertFalse(helpers.windows_need_rebuild(None, True))
+
+    def test_same_mode_keeps_windows(self) -> None:
+        self.assertFalse(helpers.windows_need_rebuild(True, True))
+        self.assertFalse(helpers.windows_need_rebuild(False, False))
+
+    def test_mismatch_rebuilds(self) -> None:
+        self.assertTrue(helpers.windows_need_rebuild(True, False))
+        self.assertTrue(helpers.windows_need_rebuild(False, True))
+
+
+class DesktopEntryTests(unittest.TestCase):
+    def test_exec_key_is_quoted(self) -> None:
+        text = (ROOT / "io.github.gnome_ascii_saver.GnomeAsciiSaver.desktop.in").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(text, r'(?m)^Exec="@EXEC@"$')
 
 
 if __name__ == "__main__":
