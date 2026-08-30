@@ -42,8 +42,11 @@ jobs:
         run: |
           set -euo pipefail
           version=$(head -n 1 VERSION)
-          sha256sum --check "dist/gnome-ascii-saver-$version.tar.gz.sha256"
-          sha256sum --check dist/gnome-ascii-saver.tar.gz.sha256
+          (
+            cd dist
+            sha256sum --check "gnome-ascii-saver-$version.tar.gz.sha256"
+            sha256sum --check gnome-ascii-saver.tar.gz.sha256
+          )
           tar -tzf "dist/gnome-ascii-saver-$version.tar.gz" >archive-contents.txt
           grep -qx "gnome-ascii-saver-$version/install-online.sh" archive-contents.txt
           grep -qx "gnome-ascii-saver-$version/install.sh" archive-contents.txt
